@@ -13,6 +13,10 @@ pd.set_option('display.max_columns', None)
 pd.set_option('max_columns', None)
 
 
+def check_commit():
+    pass
+
+
 def print_time_line_sep(msg):
     """
     :param msg: massage to print
