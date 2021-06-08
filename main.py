@@ -1,20 +1,28 @@
+import random
+
 import pandas as pd
 import numpy as np
+from time import localtime, strftime, time
+import joblib
+
 import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy.stats import chi2_contingency
-#from sklearn.model_selection import GridSearchCV, train_test_split
 from matplotlib.text import Text
 from matplotlib.legend_handler import HandlerBase
 from matplotlib.ticker import FuncFormatter, EngFormatter
-from time import localtime, strftime, time
+
+import seaborn as sns
+
+from scipy.stats import chi2_contingency
+from sklearn.model_selection import GridSearchCV, train_test_split, RandomizedSearchCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import make_column_transformer
+from sklearn.pipeline import make_pipeline
+from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score,\
+    roc_auc_score, roc_curve, f1_score
 
 pd.set_option('display.max_columns', None)
 pd.set_option('max_columns', None)
-
-
-def check_commit():
-    pass
 
 
 def print_time_line_sep(msg):
@@ -31,11 +39,11 @@ def print_time_line_sep(msg):
 
 def read_data():
     data = 'data.csv'
-    df = pd.read_csv(data)
-    return df
+    data_frame = pd.read_csv(data)
+    return data_frame
 
 
-def missing_values(df):
+def missing_values():
     """ Missing values """
     print_time_line_sep("Missing values")
     print(df.isnull().sum())
@@ -68,7 +76,6 @@ def fix_value_spaces_and_names(df):
     return df
 
 
-
 def describe_df(df):
     print_time_line_sep("describe data")
     print(df.describe(include=['object']).T)
@@ -76,6 +83,7 @@ def describe_df(df):
 
 
 def corr_matrices(df):
+
     corr = df.corr(method="spearman")
     mask = np.triu(np.ones_like(corr, dtype=bool))
     cmap = sns.diverging_palette(220, 20, as_cmap=True)
@@ -117,21 +125,8 @@ def income_general_distribution():
     plt.show()
 
 
-def distribution_per_variable(df, df_names):
-    print_time_line_sep("Descriptive Statistics")
-    for i in df_names:
-        # visualize frequency distribution of variable
-        f = plt.subplots(1, 1, figsize=(10, 8))
-        # ax[0] = df['income'].value_counts().plot.pie(explode=[0,0],autopct='%1.1f%%',ax=ax[0],shadow=True)
-        a = sns.displot(x=df[i], data=df, palette="Set1")
-        plt.title(f'{i} distribution', fontsize=22, fontweight="bold")
-        # plt.legend(fontsize='x-large')
-        # plt.ylabel('', fontsize=20)
-        plt.show()
-
-
 def age_distribution():
-    g = sns.displot(df, x=df['age'], bins=20)
+    g = sns.displot(df, x='age', hue='income', bins=20, legend='full', multiple="stack")
     g.fig.subplots_adjust(top=.95)
     g.ax.xaxis.label.set_size(20)
     g.ax.yaxis.label.set_size(12)
@@ -140,9 +135,10 @@ def age_distribution():
 
 
 def workclass_distribution():
-    workclass_names = df['workclass'].unique().tolist()
+    df_1 = df.replace(to_replace=[np.nan], value=None)
+    workclass_names = df_1['workclass'].unique().tolist()
     print(workclass_names)
-    ax = sns.histplot(data=df['workclass'], shrink=.9)
+    ax = sns.histplot(data=df_1, x='workclass',hue='income', legend='full', multiple="stack", shrink=.9)
     xlabels = workclass_names
     xlabels_new = [label.replace('-', '-\n') for label in xlabels]
     plt.xticks(range(8), xlabels_new)
@@ -157,7 +153,7 @@ def workclass_distribution():
 def education_distribution():
     workclass_names = df['education'].unique().tolist()
     print(workclass_names)
-    ax = sns.histplot(data=df['education'], shrink=.9)
+    ax = sns.histplot(data=df,x='education', hue='income', legend='full', multiple="stack", shrink=.9)
     xlabels = workclass_names
     xlabels_new = [label.replace('-', '-\n') for label in xlabels]
     plt.xticks(range(16), xlabels_new, rotation=60)
@@ -170,15 +166,14 @@ def education_distribution():
 
 
 def education_num_distribution():
-    """
-    TODO: switch the numbers on the X axis with corresponding education (or find a way to sort education manually)
-    :return:
-    """
-    workclass_names = df['education.num'].unique().tolist()
-    print(workclass_names)
-    ax = sns.histplot(data=df['education.num'], discrete=True)
+    education = df['education'].unique().tolist()
+    education_num = df['education.num'].unique().tolist()
+    education_sorted = [x for _, x in sorted(zip(education_num, education))]
+    xlabels_new = [label.replace('-', '-\n') for label in education_sorted]
+    xlabels_new = [""] + xlabels_new
+    plt.xticks(np.arange(0, 17, 1), xlabels_new, rotation=90)
+    ax = sns.histplot(data=df, x='education.num', hue='income', legend='full', multiple="stack")
     plt.tight_layout()
-    plt.xticks(np.arange(0, 17, 1))
     plt.title('Education num distribution', fontsize=22, fontweight="bold")
     plt.subplots_adjust(top=0.90)
     ax.xaxis.label.set_size(20)
@@ -189,7 +184,8 @@ def education_num_distribution():
 def marital_status_distribution():
     workclass_names = df['marital.status'].unique().tolist()
     print(workclass_names)
-    ax = sns.histplot(data=df['marital.status'], shrink=.9)
+    ax = sns.histplot(data=df, x='marital.status', shrink=.9, hue='income', legend='full', multiple="stack")
+    # data = df, x = 'education.num'
     xlabels = workclass_names
     xlabels_new = [label.replace('-', '-\n') for label in xlabels]
     plt.xticks(range(7), xlabels_new, rotation=0)
@@ -204,7 +200,7 @@ def marital_status_distribution():
 def relationship_distribution():
     workclass_names = df['relationship'].unique().tolist()
     print(workclass_names)
-    ax = sns.histplot(data=df['relationship'], shrink=.9)
+    ax = sns.histplot(data=df, x='relationship', shrink=.9, hue='income', legend='full', multiple="stack")
     xlabels = workclass_names
     xlabels_new = [label.replace('-', '-\n') for label in xlabels]
     plt.xticks(range(6), xlabels_new, rotation=0)
@@ -215,10 +211,12 @@ def relationship_distribution():
     ax.yaxis.label.set_size(12)
     plt.show()
 
+
 def occupation_distribution():
-    workclass_names = df['occupation'].unique().tolist()
+    df_1 = df.replace(to_replace=[np.nan], value=None)
+    workclass_names = df_1['occupation'].unique().tolist()
     print(workclass_names)
-    ax = sns.histplot(data=df['occupation'], shrink=.9)
+    ax = sns.histplot(data=df_1, x='occupation', hue='income', legend='full', multiple="stack")
     xlabels = workclass_names
     xlabels_new = [label.replace('-', '-\n') for label in xlabels]
     plt.xticks(range(14), xlabels_new, rotation=90)
@@ -233,7 +231,7 @@ def occupation_distribution():
 def race_distribution():
     workclass_names = df['race'].unique().tolist()
     print(workclass_names)
-    ax = sns.histplot(data=df['race'], shrink=.9)
+    ax = sns.histplot(data=df, x='race', shrink=.9, hue='income', legend='full', multiple="stack")
     xlabels = workclass_names
     xlabels_new = [label.replace('-', '-\n') for label in xlabels]
     plt.xticks(range(5), xlabels_new, rotation=0)
@@ -246,7 +244,7 @@ def race_distribution():
 
 
 def sex_distribution():
-    ax = sns.histplot(data=df['sex'], shrink=.9)
+    ax = sns.histplot(data=df, x='sex', shrink=.9, hue='income', legend='full', multiple="stack")
     plt.tight_layout()
     plt.title('Gender distribution', fontsize=22, fontweight="bold")
     plt.subplots_adjust(top=0.90)
@@ -256,7 +254,8 @@ def sex_distribution():
 
 
 def hours_per_week_distribution():
-    g = sns.displot(df, x=df['hours.per.week'], bins=20)
+    g = sns.displot(df, x='hours.per.week', hue='income', bins=20, legend='full', multiple="stack")
+    # g = sns.displot(df, x=df['hours.per.week'], bins=20)
     g.fig.subplots_adjust(top=.95)
     g.ax.set_title('Hours per week distribution', fontsize=14, fontweight="bold")
     g.ax.xaxis.label.set_size(20)
@@ -265,7 +264,7 @@ def hours_per_week_distribution():
 
 
 def fnlwgt_distribution():
-    g = sns.displot(df, x=df['fnlwgt'], hue="income", bins=20, legend=False)
+    g = sns.displot(df, x='fnlwgt', hue='income', bins=20, legend='full', multiple="stack")
     g.fig.subplots_adjust(top=.95)
     g.ax.set_title('fnlwgt distribution', fontsize=14, fontweight="bold")
     formatter1 = EngFormatter(places=1, sep="\N{THIN SPACE}")  # U+2009
@@ -277,7 +276,7 @@ def fnlwgt_distribution():
 
 
 def capital_gain_distribution():
-    g = sns.displot(df, x=df['capital.gain'], bins=20)
+    g = sns.displot(df, x='capital.gain', hue='income', bins=10, legend='full', multiple="stack")
     g.fig.subplots_adjust(top=.95)
     g.ax.set_title('Capital gain distribution', fontsize=14, fontweight="bold")
     formatter1 = EngFormatter(places=1, sep="\N{THIN SPACE}")  # U+2009
@@ -289,12 +288,11 @@ def capital_gain_distribution():
 
 
 def capital_loss_distribution():
-    g = sns.displot(df, x=df['capital.loss'], hue="income", bins=20)
+    g = sns.displot(df, x='capital.loss', hue='income', bins=10, legend='full', multiple="stack")
     g.fig.subplots_adjust(top=.95)
     g.ax.set_title('Capital loss distribution', fontsize=14, fontweight="bold")
     formatter1 = EngFormatter(places=1, sep="\N{THIN SPACE}")  # U+2009
     g.ax.xaxis.set_major_formatter(formatter1)
-    # plt.xticks(np.arange(0, 1_200_000, 250_000))
     g.ax.xaxis.label.set_size(20)
     g.ax.yaxis.label.set_size(12)
     plt.show()
@@ -303,16 +301,9 @@ def capital_loss_distribution():
 def native_country_distribution():
     def autopct(pct):  # only show the label when it's > 10%
         return ('%.2f' % pct) if pct > 10 else ''
-
     my_labels = df['native.country'].unique().tolist()
-
     ax = df['native.country'].value_counts().plot(kind='pie', figsize=(28, 12), autopct=autopct)
     ax.axes.get_yaxis().set_visible(False)
-
-    # ax = df['native.country'].value_counts().plot(kind='pie',   autopct='%1.1f%%',
-    #         startangle=90, shadow=False)
-    # plt.title('Native country distribution', fontsize=22, fontweight="bold")
-    # plt.ylabel('', fontsize=20)
     plt.show()
 
 
@@ -332,13 +323,6 @@ def plot_descriptive_statistics():
     hours_per_week_distribution()
     native_country_distribution()
     income_general_distribution()
-    # # Visualize income wrt race # uncomment to plot separately
-    #  f, ax = plt.subplots(figsize=(10, 8))
-    # ax[0] = sns.countplot(x="income", hue="race", data=df, palette="Set1") #
-    # ax[0].set_title("Frequency distribution of income variable wrt race")
-    # # # ax[1] = sns.countplot(x="income", hue="race", data=df, palette="Set1") #
-    # # # ax[1].set_title("Frequency distribution of income variable wrt race")
-    # plt.show()
 
 
 def distribution_workclass_income(df):
@@ -418,17 +402,24 @@ def income_plot3(df):
     plt.show()
 
 
-def handle_MVs(df):
+def handle_mis_val(df):
     print("Number of Missing values of 3 variables:")
-    print(df.loc[df['occupation'].isnull() & (df['workclass'].isnull()) & (df['native.country'].isnull())].count())
+    print(df.loc[df['native.country'].isnull()].count())
+    print(df.loc[df['occupation'].isnull() & (df['workclass'].isnull())].count())
     print("Number of Missing values of workclass and native.country:")
     print(df.loc[df['occupation'].isnull() & (df['workclass'].isnull())].count())
     """ Dropping records:"""
-    df = df.drop(df[(df['occupation'].isnull() ) & (df['workclass'].isnull()) & df['native.country'].isnull()].index)
-    print('The shape of the dataset : ', df.shape)
+    # df = df.drop(df[(df['occupation'].isnull() ) & (df['workclass'].isnull()) & df['native.country'].isnull()].index)
+    # print('The shape of the dataset : ', df.shape)
     df = df.drop(df[(df['occupation'].isnull()) & (df['workclass'].isnull())].index)
+    df['occupation'].fillna(df['occupation'].mode()[0], inplace=True)
     print('The shape of the dataset : ', df.shape)
+    print("Number of Missing values of 1ariables:")
+    print(df.loc[df['occupation'].isnull() | df['workclass'].isnull() | df['native.country'].isnull()].count())
+    df['native.country'].fillna(df['native.country'].mode()[0], inplace=True)
+    print(df.loc[df['native.country'].isnull()].count())
     return df
+
 
 def cramers_v(x, y):
     confusion_matrix = pd.crosstab(x,y)
@@ -442,36 +433,109 @@ def cramers_v(x, y):
     return np.sqrt(phi2corr/min((kcorr-1),(rcorr-1)))
 
 
+def encode_and_bind(original_dataframe, features_to_encode):
+    dummies = pd.get_dummies(original_dataframe[features_to_encode])
+    res = pd.concat([dummies, original_dataframe], axis=1)
+    res = res.drop(features_to_encode, axis=1)
+    return(res)
+
+
 if __name__ == '__main__':
+    np.random.seed(1)
+    random.seed(1)
     df = read_data()
-    print('The shape of the dataset : ', df.shape)
-    # describe_df(df)
     df = fix_value_spaces_and_names(df)
     """ -----------------------------  """
     # TODO - to aggregation of occupation - professionals
-    missing_values(df)
-    df = handle_MVs(df)
-    # missing_values(df)
-    result = cramers_v( df['native.country'], df['capital.loss'])
-    print(result)
+    df = handle_mis_val(df)
+    # df_1 = df.replace(to_replace=[None], value=np.nan)
+    # result = cramers_v( df['occupation'], df['workclass'])
+    # print(result)
+    # y = df.iloc[:, 14:15]
+    # X = df.iloc[:, :14]
 
-    # print(df.describe(include='all').T)
-    # target value
-    # check_columns()
-    # print(df['income'].isnull().sum())
-    # print(df['income'].nunique())
-    # print(df['income'].value_counts())
-    # print(df["native.country"].str.startswith(' '))
-    # corr_matrices(df)
-    # stat, p, dof, expected = chi2_contingency(df['occupation'], df['workclass'])
-    # plt.matshow(df.corr())
-    # plt.show()
-    # plot_descriptive_statistics(df)
-    # age_distribution(df)
+    y = df.pop('income')
+    df = df.drop('native.country', axis=1)
 
-    # workclass_distribution()
-    # distribution_per_variable(df,names)
+    X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42)
+    features_to_encode = df.columns[df.dtypes == object].tolist()
+    col_trans = make_column_transformer((OneHotEncoder(), features_to_encode), remainder="passthrough")
 
-    # X, y = df.iloc[:,:14], df.iloc[:, 14:15]
-    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    # tune_pipeline(pipeline, hyper_parameters_grid, X, y, n_folds=5, n_jobs=1)
+# def rf_pipe():
+    rf_classifier = RandomForestClassifier()
+    pipe = make_pipeline(col_trans, rf_classifier)
+    pipe.fit(X_train, y_train)
+    y_pred = pipe.predict(X_test)
+    print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
+
+    # n_estimators = [int(x) for x in np.linspace(start=50, stop=700, num=50)]
+    # max_features = ['auto', 'log2']  # Number of features to consider at every split
+    # max_depth = [int(x) for x in np.linspace(10, 110, num=11)]  # Maximum number of levels in tree
+    # max_depth.append(None)
+    # min_samples_split = [2, 5, 10]  # Minimum number of samples required to split a node
+    # bootstrap = [True, False]  # Method of selecting samples for training each tree
+    # random_grid = {'n_estimators': n_estimators,
+    #                'max_features': max_features,
+    #                'max_depth': max_depth,
+    #                'min_samples_split': min_samples_split,
+    #                'max_leaf_nodes': [None] + list(np.linspace(10, 50, 500).astype(int)),
+    #                'bootstrap': bootstrap,
+    #                }
+    n_estimators = [int(x) for x in np.linspace(start=50, stop=150, num=1)]
+    # max_features = ['auto', 'log2']  # Number of features to consider at every split
+    max_depth = [int(x) for x in np.linspace(10, 110,1)]  # Maximum number of levels in tree
+    max_depth.append(None)
+    min_samples_split = [2, 5, 10]  # Minimum number of samples required to split a node
+    bootstrap = [True, False]  # Method of selecting samples for training each tree
+    random_grid = {'n_estimators': n_estimators,
+                   # 'max_features': max_features,
+                   'max_depth': max_depth,
+                   # 'min_samples_split': min_samples_split,
+                   # 'max_leaf_nodes': [None] + list(np.linspace(10, 50, 500).astype(int)),
+                   # 'bootstrap': bootstrap,
+                   }
+    # Create base model to tune
+    rf = RandomForestClassifier(oob_score=True)
+    # Create random search model and fit the data
+    rf_random = GridSearchCV(
+        estimator=rf,
+        param_grid=random_grid,
+        n_jobs=-1, cv=3,
+        verbose=2,
+        scoring='f1')
+    # rf_random = RandomizedSearchCV(
+    #     estimator=rf,
+    #     param_distributions=random_grid,
+    #     n_iter=100, cv=5,
+    #     verbose=1,
+    #     scoring='roc_auc')
+    X_train_encoded = encode_and_bind(X_train, features_to_encode)
+    X_test_encoded = encode_and_bind(X_test, features_to_encode)
+    # y_train_encoded = encode_and_bind(y_train, features_to_encode + ['income'])
+    # y_test_encoded = encode_and_bind(y_test, features_to_encode + ['income'])
+
+    # rf_random.fit(X_train_encoded, y_train) #todo
+    # y_pred = rf_random.predict(X_test_encoded) #todo
+
+    rf_random.fit(X_train, y_train)
+    y_pred = rf_random.predict(X_test)
+    print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
+    print(rf_random.best_params_)
+    print(rf_random.cv_results_)
+
+
+    # save your model or results
+    joblib.dump(rf_random, 'model_gs1.pkl')
+    # load your model for further usage
+
+
+
+    gc = joblib.load("model_gs1.pkl")
+    print(gc)
+    y_pred_acc = gc.predict(X_test)
+    confusion_matrix(y_test, y_pred_acc)
+
+
+
+
+
