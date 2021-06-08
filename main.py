@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from time import localtime, strftime, time
 import joblib
+import itertools
 
 import matplotlib.pyplot as plt
 from matplotlib.text import Text
@@ -14,12 +15,14 @@ import seaborn as sns
 
 from scipy.stats import chi2_contingency
 from sklearn.model_selection import GridSearchCV, train_test_split, RandomizedSearchCV
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import make_column_transformer
 from sklearn.pipeline import make_pipeline
 from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score,\
     roc_auc_score, roc_curve, f1_score
+
+train_mode = False
 
 pd.set_option('display.max_columns', None)
 pd.set_option('max_columns', None)
@@ -57,6 +60,8 @@ def fix_value_spaces_and_names(df):
     df = df.replace(to_replace=[" <=50K.", " <=50K"], value="<=50K")
     df = df.replace(to_replace=[" >50K", " >50K."], value=">50K")
     df = df.replace(to_replace=[" ?", "?"], value=np.nan)
+    income_map = {'<=50K': 0, '>50K': 1}
+    df['income'] = df['income'].map(income_map)
     print(df.columns)
     cols = ['workclass', 'education', 'marital.status', 'occupation', 'relationship', 'race', 'sex', 'native.country']
     df[cols] = df[cols].apply(lambda x: x.str.strip())
@@ -440,6 +445,167 @@ def encode_and_bind(original_dataframe, features_to_encode):
     return(res)
 
 
+def plot_confusion_matrix(cm, classes, normalize = False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Greens): # can change color
+    plt.figure(figsize = (10, 10))
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title, size = 24)
+    plt.colorbar(aspect=4)
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45, size = 14)
+    plt.yticks(tick_marks, classes, size = 14)
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    # Label the plot
+    for i, j in itertools.product(range(cm.shape[0]),   range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 fontsize = 20,
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+        plt.grid(None)
+        plt.tight_layout()
+        plt.ylabel('True label', size = 18)
+        plt.xlabel('Predicted label', size = 18)
+    plt.show()
+
+
+def evaluate_model(y_pred, probs,train_predictions, train_probs):
+    baseline = {}
+    baseline['recall']=recall_score(y_test,
+                    [1 for _ in range(len(y_test))])
+    baseline['precision'] = precision_score(y_test,
+                    [1 for _ in range(len(y_test))])
+    baseline['roc'] = 0.5
+    results = {}
+    results['recall'] = recall_score(y_test, y_pred)
+    results['precision'] = precision_score(y_test, y_pred)
+    results['roc'] = roc_auc_score(y_test, probs)
+    train_results = {}
+    train_results['recall'] = recall_score(y_train,       train_predictions)
+    train_results['precision'] = precision_score(y_train, train_predictions)
+    train_results['roc'] = roc_auc_score(y_train, train_probs)
+    for metric in ['recall', 'precision', 'roc']:
+        print(f'{metric.capitalize()} '
+              f'Baseline: {round(baseline[metric], 2)} '
+              f'Test: {round(results[metric], 2)} '
+              f'Train: {round(train_results[metric], 2)} ')
+     # Calculate false positive rates and true positive rates
+    base_fpr, base_tpr, _ = roc_curve(y_test, [1 for _ in range(len(y_test))])
+    model_fpr, model_tpr, _ = roc_curve(y_test, probs)
+    plt.figure(figsize = (8, 6))
+    plt.rcParams['font.size'] = 16
+    # Plot both curves
+    plt.plot(base_fpr, base_tpr, 'b', label = 'baseline')
+    plt.plot(model_fpr, model_tpr, 'r', label = 'model')
+    plt.legend()
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curves')
+    plt.show()
+
+
+def XGBoost_pipe():
+    checking = True
+    random_grid = {}
+    XGBoost_classifier = GradientBoostingClassifier()
+    pipe = make_pipeline(col_trans, XGBoost_classifier)
+    pipe.fit(X_train, y_train)
+    y_pred = pipe.predict(X_test)
+    print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
+
+    n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=5)]
+    max_depth = [int(x) for x in np.linspace(10, 110, num=3)]  # Maximum number of levels in tree
+    max_depth.append(None)
+    min_samples_split = [2, 5, 10]  # Minimum number of samples required to split a node
+    bootstrap = [True]  # Method of selecting samples for training each tree
+    if checking:
+        random_grid = {'n_estimators': [50,100],
+                       'max_depth': [None, 5]}
+    else:
+        random_grid = {'n_estimators': n_estimators,
+                       'max_depth': max_depth,
+                       'min_samples_split': min_samples_split,
+                       'max_leaf_nodes': [None] + list(np.linspace(10, 50, 500).astype(int)),
+                       'bootstrap': bootstrap,
+                       }
+    # Create base model to tune
+    XG = GradientBoostingClassifier()
+    # Create random search model and fit the data
+    XG_random = GridSearchCV(
+        estimator=XG,
+        param_grid=random_grid,
+        n_jobs=-1, cv=5,
+        verbose=2,
+        scoring='f1')
+    X_train_encoded = encode_and_bind(X_train, features_to_encode)
+    X_test_encoded = encode_and_bind(X_test, features_to_encode)
+    if train_mode:
+        XG_random.fit(X_train_encoded, y_train)
+        joblib.dump(XG_random, 'model_XG_final.pkl')  # save your model or results
+    else:
+        XG_random = joblib.load("model_XG_final.pkl")  # load your model for further usage
+    y_pred_acc = XG_random.predict(X_test_encoded)
+    cm = confusion_matrix(y_test, y_pred_acc)
+    plot_confusion_matrix(cm, classes=['0 - <=50K', '1 - >50K'],
+                          title='income Confusion Matrix')
+    probs = XG_random.predict_proba(X_test_encoded)[:,1]
+    train_probs = XG_random.predict_proba(X_train_encoded)[:,1]
+    train_predictions = XG_random.predict(X_train_encoded)
+    evaluate_model(y_pred_acc,probs,train_predictions,train_probs)
+
+
+def rf_pipe():
+    checking = True
+    random_grid = {}
+    rf_classifier = RandomForestClassifier()
+    pipe = make_pipeline(col_trans, rf_classifier)
+    pipe.fit(X_train, y_train)
+    y_pred = pipe.predict(X_test)
+    print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
+
+    n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=5)]
+    max_depth = [int(x) for x in np.linspace(10, 110, num=3)]  # Maximum number of levels in tree
+    max_depth.append(None)
+    min_samples_split = [2, 5, 10]  # Minimum number of samples required to split a node
+    bootstrap = [True]  # Method of selecting samples for training each tree
+    if checking:
+        random_grid = {'n_estimators': [50,100],
+                       'max_depth': [None, 5]}
+    else:
+        random_grid = {'n_estimators': n_estimators,
+                       'max_depth': max_depth,
+                       'min_samples_split': min_samples_split,
+                       'max_leaf_nodes': [None] + list(np.linspace(10, 50, 500).astype(int)),
+                       'bootstrap': bootstrap,
+                       }
+    # Create base model to tune
+    rf = RandomForestClassifier(oob_score=True)
+    # Create random search model and fit the data
+    rf_random = GridSearchCV(
+        estimator=rf,
+        param_grid=random_grid,
+        n_jobs=-1, cv=5,
+        verbose=2,
+        scoring='f1')
+    X_train_encoded = encode_and_bind(X_train, features_to_encode)
+    X_test_encoded = encode_and_bind(X_test, features_to_encode)
+    if train_mode:
+        rf_random.fit(X_train_encoded, y_train)
+        joblib.dump(rf_random, 'model_gs_final.pkl')  # save your model or results
+    else:
+        rf_random = joblib.load("model_gs1.pkl")  # load your model for further usage
+    y_pred_acc = rf_random.predict(X_test_encoded)
+    cm = confusion_matrix(y_test, y_pred_acc)
+    plot_confusion_matrix(cm, classes=['0 - <=50K', '1 - >50K'],
+                          title='income Confusion Matrix')
+    probs = rf_random.predict_proba(X_test_encoded)[:,1]
+    train_probs = rf_random.predict_proba(X_train_encoded)[:,1]
+    train_predictions = rf_random.predict(X_train_encoded)
+    evaluate_model(y_pred_acc,probs,train_predictions,train_probs)
+
+
+
 if __name__ == '__main__':
     np.random.seed(1)
     random.seed(1)
@@ -460,80 +626,9 @@ if __name__ == '__main__':
     X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42)
     features_to_encode = df.columns[df.dtypes == object].tolist()
     col_trans = make_column_transformer((OneHotEncoder(), features_to_encode), remainder="passthrough")
-
+    XGBoost_pipe()
 # def rf_pipe():
-    rf_classifier = RandomForestClassifier()
-    pipe = make_pipeline(col_trans, rf_classifier)
-    pipe.fit(X_train, y_train)
-    y_pred = pipe.predict(X_test)
-    print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
 
-    # n_estimators = [int(x) for x in np.linspace(start=50, stop=700, num=50)]
-    # max_features = ['auto', 'log2']  # Number of features to consider at every split
-    # max_depth = [int(x) for x in np.linspace(10, 110, num=11)]  # Maximum number of levels in tree
-    # max_depth.append(None)
-    # min_samples_split = [2, 5, 10]  # Minimum number of samples required to split a node
-    # bootstrap = [True, False]  # Method of selecting samples for training each tree
-    # random_grid = {'n_estimators': n_estimators,
-    #                'max_features': max_features,
-    #                'max_depth': max_depth,
-    #                'min_samples_split': min_samples_split,
-    #                'max_leaf_nodes': [None] + list(np.linspace(10, 50, 500).astype(int)),
-    #                'bootstrap': bootstrap,
-    #                }
-    n_estimators = [int(x) for x in np.linspace(start=50, stop=150, num=1)]
-    # max_features = ['auto', 'log2']  # Number of features to consider at every split
-    max_depth = [int(x) for x in np.linspace(10, 110,1)]  # Maximum number of levels in tree
-    max_depth.append(None)
-    min_samples_split = [2, 5, 10]  # Minimum number of samples required to split a node
-    bootstrap = [True, False]  # Method of selecting samples for training each tree
-    random_grid = {'n_estimators': n_estimators,
-                   # 'max_features': max_features,
-                   'max_depth': max_depth,
-                   # 'min_samples_split': min_samples_split,
-                   # 'max_leaf_nodes': [None] + list(np.linspace(10, 50, 500).astype(int)),
-                   # 'bootstrap': bootstrap,
-                   }
-    # Create base model to tune
-    rf = RandomForestClassifier(oob_score=True)
-    # Create random search model and fit the data
-    rf_random = GridSearchCV(
-        estimator=rf,
-        param_grid=random_grid,
-        n_jobs=-1, cv=3,
-        verbose=2,
-        scoring='f1')
-    # rf_random = RandomizedSearchCV(
-    #     estimator=rf,
-    #     param_distributions=random_grid,
-    #     n_iter=100, cv=5,
-    #     verbose=1,
-    #     scoring='roc_auc')
-    X_train_encoded = encode_and_bind(X_train, features_to_encode)
-    X_test_encoded = encode_and_bind(X_test, features_to_encode)
-    # y_train_encoded = encode_and_bind(y_train, features_to_encode + ['income'])
-    # y_test_encoded = encode_and_bind(y_test, features_to_encode + ['income'])
-
-    # rf_random.fit(X_train_encoded, y_train) #todo
-    # y_pred = rf_random.predict(X_test_encoded) #todo
-
-    rf_random.fit(X_train, y_train)
-    y_pred = rf_random.predict(X_test)
-    print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
-    print(rf_random.best_params_)
-    print(rf_random.cv_results_)
-
-
-    # save your model or results
-    joblib.dump(rf_random, 'model_gs1.pkl')
-    # load your model for further usage
-
-
-
-    gc = joblib.load("model_gs1.pkl")
-    print(gc)
-    y_pred_acc = gc.predict(X_test)
-    confusion_matrix(y_test, y_pred_acc)
 
 
 
