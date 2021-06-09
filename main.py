@@ -4,12 +4,14 @@ import numpy as np
 from time import localtime, strftime, time
 import joblib
 import itertools
+from imblearn.over_sampling import SMOTE
 
 import matplotlib.pyplot as plt
 from matplotlib.text import Text
 from matplotlib.legend_handler import HandlerBase
 from matplotlib.ticker import FuncFormatter, EngFormatter
-
+from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import RandomOverSampler
 import seaborn as sns
 
 from scipy.stats import chi2_contingency
@@ -17,15 +19,16 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV, train_test_split, RandomizedSearchCV
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.impute import KNNImputer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import make_column_transformer
 from sklearn.pipeline import make_pipeline
-from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score,\
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score, \
     roc_auc_score, roc_curve, f1_score
 
-train_mode = False
+train_mode = True
 fprs, tprs = [], []
-
 
 pd.set_option('display.max_columns', None)
 pd.set_option('max_columns', None)
@@ -91,7 +94,6 @@ def describe_df(df):
 
 
 def corr_matrices(df):
-
     corr = df.corr(method="spearman")
     mask = np.triu(np.ones_like(corr, dtype=bool))
     cmap = sns.diverging_palette(220, 20, as_cmap=True)
@@ -125,8 +127,8 @@ def income_general_distribution():
     # # visualize frequency distribution of income variable
     f = plt.subplots(1, 1, figsize=(10, 8))
     # ax[0] = df['income'].value_counts().plot.pie(explode=[0,0],autopct='%1.1f%%',ax=ax[0],shadow=True)
-    df['income'].value_counts().plot(kind='pie',   autopct='%1.1f%%', colors=["red", "green"],
-            startangle=90, shadow=False,  legend=True, fontsize=19, labels=["<=50K$",">50K$"])
+    df['income'].value_counts().plot(kind='pie', autopct='%1.1f%%', colors=["red", "green"],
+                                     startangle=90, shadow=False, legend=True, fontsize=19, labels=["<=50K$", ">50K$"])
     plt.title('Income distribution', fontsize=22, fontweight="bold")
     plt.legend(fontsize='x-large')
     plt.ylabel('', fontsize=20)
@@ -146,7 +148,7 @@ def workclass_distribution():
     df_1 = df.replace(to_replace=[np.nan], value=None)
     workclass_names = df_1['workclass'].unique().tolist()
     print(workclass_names)
-    ax = sns.histplot(data=df_1, x='workclass',hue='income', legend='full', multiple="stack", shrink=.9)
+    ax = sns.histplot(data=df_1, x='workclass', hue='income', legend='full', multiple="stack", shrink=.9)
     xlabels = workclass_names
     xlabels_new = [label.replace('-', '-\n') for label in xlabels]
     plt.xticks(range(8), xlabels_new)
@@ -161,7 +163,7 @@ def workclass_distribution():
 def education_distribution():
     workclass_names = df['education'].unique().tolist()
     print(workclass_names)
-    ax = sns.histplot(data=df,x='education', hue='income', legend='full', multiple="stack", shrink=.9)
+    ax = sns.histplot(data=df, x='education', hue='income', legend='full', multiple="stack", shrink=.9)
     xlabels = workclass_names
     xlabels_new = [label.replace('-', '-\n') for label in xlabels]
     plt.xticks(range(16), xlabels_new, rotation=60)
@@ -252,7 +254,7 @@ def race_distribution():
 
 
 def sex_distribution():
-    ax = sns.histplot(data=df, x='sex', shrink=.9, hue='income', legend='full', multiple="stack")
+    ax = sns.histplot(data=df, x='income', shrink=.9, hue='sex', legend='full', multiple="stack")
     plt.tight_layout()
     plt.title('Gender distribution', fontsize=22, fontweight="bold")
     plt.subplots_adjust(top=0.90)
@@ -309,6 +311,7 @@ def capital_loss_distribution():
 def native_country_distribution():
     def autopct(pct):  # only show the label when it's > 10%
         return ('%.2f' % pct) if pct > 10 else ''
+
     my_labels = df['native.country'].unique().tolist()
     ax = df['native.country'].value_counts().plot(kind='pie', figsize=(28, 12), autopct=autopct)
     ax.axes.get_yaxis().set_visible(False)
@@ -360,12 +363,12 @@ def distribution_workclass_income(df):
 def box_plots(df):
     fig, axs = plt.subplots(nrows=2, ncols=3)
     fig.suptitle('Box-plots', fontweight="bold")
-    df.boxplot(column=['age'], ax=axs[0, 0], widths=(0.5),  color= 'darkred')
-    df.boxplot(column=['fnlwgt'], ax=axs[0, 1], widths=(0.5),  color= 'darkred')
-    df.boxplot(column=['education.num'], ax=axs[0, 2], widths=(0.5), color= 'darkred')
-    df.boxplot(column=['capital.gain'], ax=axs[1, 0], widths=(0.5),  color= 'darkred')
-    df.boxplot(column=['capital.loss'], ax=axs[1, 1], widths=(0.5),  color= 'darkred')
-    df.boxplot(column=['hours.per.week'], ax=axs[1, 2], widths=(0.5), color= 'darkred')
+    df.boxplot(column=['age'], ax=axs[0, 0], widths=(0.5), color='darkred')
+    df.boxplot(column=['fnlwgt'], ax=axs[0, 1], widths=(0.5), color='darkred')
+    df.boxplot(column=['education.num'], ax=axs[0, 2], widths=(0.5), color='darkred')
+    df.boxplot(column=['capital.gain'], ax=axs[1, 0], widths=(0.5), color='darkred')
+    df.boxplot(column=['capital.loss'], ax=axs[1, 1], widths=(0.5), color='darkred')
+    df.boxplot(column=['hours.per.week'], ax=axs[1, 2], widths=(0.5), color='darkred')
     plt.show()
 
 
@@ -405,7 +408,7 @@ def income_plot3(df):
     ax.legend(loc='upper right')
     ax.xaxis.label.set_size(15)
     ax.yaxis.label.set_size(12)
-    plt.yticks(np.arange(10,130,10))
+    plt.yticks(np.arange(10, 130, 10))
     plt.legend(fontsize=8, loc='upper right')
     plt.show()
 
@@ -420,6 +423,7 @@ def handle_mis_val(df):
     # df = df.drop(df[(df['occupation'].isnull() ) & (df['workclass'].isnull()) & df['native.country'].isnull()].index)
     # print('The shape of the dataset : ', df.shape)
     df = df.drop(df[(df['occupation'].isnull()) & (df['workclass'].isnull())].index)
+
     df['occupation'].fillna(df['occupation'].mode()[0], inplace=True)
     print('The shape of the dataset : ', df.shape)
     print("Number of Missing values of 1ariables:")
@@ -430,48 +434,48 @@ def handle_mis_val(df):
 
 
 def cramers_v(x, y):
-    confusion_matrix = pd.crosstab(x,y)
+    confusion_matrix = pd.crosstab(x, y)
     chi2 = chi2_contingency(confusion_matrix)[0]
     n = confusion_matrix.sum().sum()
-    phi2 = chi2/n
-    r,k = confusion_matrix.shape
-    phi2corr = max(0, phi2-((k-1)*(r-1))/(n-1))
-    rcorr = r-((r-1)**2)/(n-1)
-    kcorr = k-((k-1)**2)/(n-1)
-    return np.sqrt(phi2corr/min((kcorr-1),(rcorr-1)))
+    phi2 = chi2 / n
+    r, k = confusion_matrix.shape
+    phi2corr = max(0, phi2 - ((k - 1) * (r - 1)) / (n - 1))
+    rcorr = r - ((r - 1) ** 2) / (n - 1)
+    kcorr = k - ((k - 1) ** 2) / (n - 1)
+    return np.sqrt(phi2corr / min((kcorr - 1), (rcorr - 1)))
 
 
 def encode_and_bind(original_dataframe, features_to_encode):
     dummies = pd.get_dummies(original_dataframe[features_to_encode])
     res = pd.concat([dummies, original_dataframe], axis=1)
     res = res.drop(features_to_encode, axis=1)
-    return(res)
+    return (res)
 
 
-def plot_confusion_matrix(cm, classes, normalize = False, title='Confusion matrix',cmap=plt.cm.Blues):
-    plt.figure(figsize = (10, 10))
+def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix', cmap=plt.cm.Blues):
+    plt.figure(figsize=(10, 10))
     plt.imshow(cm, interpolation='nearest', cmap=cmap)
-    plt.title(title, size = 24)
+    plt.title(title, size=24)
     plt.colorbar(aspect=4)
     tick_marks = np.arange(len(classes))
-    plt.xticks(tick_marks, classes, rotation=45, size = 14)
-    plt.yticks(tick_marks, classes, size = 14)
+    plt.xticks(tick_marks, classes, rotation=45, size=14)
+    plt.yticks(tick_marks, classes, size=14)
     fmt = '.2f' if normalize else 'd'
     thresh = cm.max() / 2.
     # Label the plot
-    for i, j in itertools.product(range(cm.shape[0]),   range(cm.shape[1])):
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
         plt.text(j, i, format(cm[i, j], fmt),
-                 fontsize = 20,
+                 fontsize=20,
                  horizontalalignment="center",
                  color="white" if cm[i, j] > thresh else "black")
         plt.grid(None)
         plt.tight_layout()
-        plt.ylabel('True label', size = 18)
-        plt.xlabel('Predicted label', size = 18)
+        plt.ylabel('True label', size=18)
+        plt.xlabel('Predicted label', size=18)
     plt.show()
 
 
-def results(grid_search_model, X_train_encoded, X_test_encoded, y_test, estimator):
+def results(grid_search_model, X_train_encoded, X_test_encoded, y_test, estimator, y_train):
     y_pred_acc = grid_search_model.predict(X_test_encoded)
     cm = confusion_matrix(y_test, y_pred_acc)
     plot_confusion_matrix(cm, classes=['0 - <=50K', '1 - >50K'],
@@ -484,80 +488,7 @@ def results(grid_search_model, X_train_encoded, X_test_encoded, y_test, estimato
         train_probs = grid_search_model.predict_proba(X_train_encoded)[:, 1]
 
     train_predictions = grid_search_model.predict(X_train_encoded)
-    evaluate_model(y_pred_acc, probs, train_predictions, train_probs, estimator)
-
-
-def NN_pipe():
-    print_time_line_sep('NN')
-    checking = True
-    random_grid = {}
-    NN_classifier = MLPClassifier()
-    pipe = make_pipeline(col_trans, NN_classifier)
-    pipe.fit(X_train, y_train)
-    y_pred = pipe.predict(X_test)
-    print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
-
-    if checking:
-        param_grid = { 'max_iter': [15000],
-                       'hidden_layer_sizes': np.arange(15,16)}
-    else:
-        param_grid = {'solver': ['lbfgs'],
-                      'max_iter': [1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000],
-                      'alpha': 10.0 ** -np.arange(1, 10), 'hidden_layer_sizes': np.arange(5, 20,5)}
-    # Create base model to tune
-    NN = MLPClassifier()
-
-    # Create random search model and fit the data
-    NN_grid_search = GridSearchCV(estimator=NN, param_grid=param_grid, n_jobs=-1, cv=5, verbose=2, scoring='f1')
-    X_train_encoded = encode_and_bind(X_train, features_to_encode)
-    X_test_encoded = encode_and_bind(X_test, features_to_encode)
-    if train_mode:
-        NN_grid_search.fit(X_train_encoded, y_train)
-        joblib.dump(NN_grid_search, 'NN_final.pkl')  # save your model or results
-    else:
-        NN_grid_search = joblib.load("NN_final.pkl")  # load your model for further usage
-    results(NN_grid_search, X_train_encoded, X_test_encoded, y_test, 'NN')
-
-
-def XGBoost_pipe():
-    print_time_line_sep('XGBoost')
-    checking = True
-    random_grid = {}
-    XGBoost_classifier = GradientBoostingClassifier()
-    pipe = make_pipeline(col_trans, XGBoost_classifier)
-    pipe.fit(X_train, y_train)
-    y_pred = pipe.predict(X_test)
-    print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
-
-    n_estimators = [int(x) for x in np.linspace(start=50, stop=350, num=5)]
-    max_depth = [int(x) for x in np.linspace(10, 110, num=5)]  # Maximum number of levels in tree #todo change to very small values!
-    min_samples_split = [2, 5, 10]  # Minimum number of samples required to split a node
-    if checking:
-        random_grid = {'n_estimators': [100],
-                       'max_depth': [2]}
-    else:
-        random_grid = {'n_estimators': n_estimators,
-                       'max_depth': max_depth,
-                       'min_samples_split': min_samples_split,
-                       }
-    # Create base model to tune
-    XG = GradientBoostingClassifier()
-    # Create random search model and fit the data
-    XG_grid_search = GridSearchCV(
-        estimator=XG,
-        param_grid=random_grid,
-        n_jobs=-1, cv=5,
-        verbose=2,
-        scoring='f1')
-    X_train_encoded = encode_and_bind(X_train, features_to_encode)
-    X_test_encoded = encode_and_bind(X_test, features_to_encode)
-    if train_mode:
-        XG_grid_search.fit(X_train_encoded, y_train)
-        joblib.dump(XG_grid_search, 'XG_final.pkl')  # save your model or results
-    else:
-        XG_grid_search = joblib.load("XG_final.pkl")  # load your model for further usage
-
-    results(XG_grid_search, X_train_encoded, X_test_encoded, y_test, 'XG')
+    evaluate_model(y_pred_acc, probs, train_predictions, train_probs, estimator,y_test, y_train)
 
 
 def plot_feature_importance(X_train_en, grid_search_object):
@@ -599,6 +530,7 @@ def plot_feature_importance(X_train_en, grid_search_object):
 def rf_pipe():
     print_time_line_sep('Random Forest')
     checking = True
+    train_mode = True
     random_grid = {}
     n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=5)]
     max_depth = [int(x) for x in np.linspace(10, 110, num=5)]  # Maximum number of levels in tree
@@ -606,8 +538,8 @@ def rf_pipe():
     min_samples_split = [2, 5]  # Minimum number of samples required to split a node
     bootstrap = [True]  # Method of selecting samples for training each tree
     if checking:
-        random_grid = {'n_estimators': [35],
-                       'max_depth': [19]}
+        random_grid = {'n_estimators': [100],
+                       'min_samples_split': [2]}
     else:
         random_grid = {'n_estimators': n_estimators,
                        'max_depth': max_depth,
@@ -619,34 +551,86 @@ def rf_pipe():
 
     # Create random search model and fit the data
     rf_random = GridSearchCV(estimator=rf, param_grid=random_grid, n_jobs=-1, cv=5, verbose=2, scoring='f1')
-    X_train_encoded = encode_and_bind(X_train, features_to_encode)
-    X_test_encoded = encode_and_bind(X_test, features_to_encode)
+    # X_train_encoded = encode_and_bind(X_train, features_to_encode)
+    # X_test_encoded = encode_and_bind(X_test, features_to_encode)
     # rf.fit(X_train_encoded, y_train)
     if train_mode:
-        rf_random.fit(X_train_encoded, y_train)
-        joblib.dump(rf_random, 'rf_final.pkl')  # save your model or results
+        rf_random.fit(X_train, y_train)
+        joblib.dump(rf_random, 'rf_testing.pkl')  # save your model or results
     else:
-        rf_random = joblib.load("rf_final.pkl")  # load your model for further usage
-    results(rf_random, X_train_encoded, X_test_encoded, y_test, 'RF')
-    print("feature importance")
-    plot_feature_importance(X_train_en=X_train_encoded, grid_search_object=rf_random)
+        rf_random = joblib.load("rf_testing.pkl")  # load your model for further usage
+    results(rf_random, X_train, X_test, y_test, 'RF', y_train)
+    # print("feature importance")
+    plot_feature_importance(X_train_en=X_train, grid_search_object=rf_random)
 
 
-def svm_pipe():
-    print_time_line_sep('SVM')
-    checking = False
+def XGBoost_pipe():
+    print_time_line_sep('XGBoost')
+    checking = True
     random_grid = {}
-    # svm_classifier = SVC()
-    # pipe = make_pipeline(col_trans, svm_classifier)
-    # pipe.fit(X_train, y_train)
-    # y_pred = pipe.predict(X_test)
-    # print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
-
-    alpha = [0.0001]
-    max_iter = [1_000]  # Maximum number of levels in tree
+    max_depth = [1,2,3,4,5]  # Maximum number of levels in tree #todo change to very small values!
+    learning_rate = [0.01, 0.1, 1]
     if checking:
-        random_grid = {'alpha': alpha,
-                       'max_iter': max_iter}
+        random_grid = {'n_estimators': [100],
+                       'learning_rate': [0.1]}
+    else:
+        random_grid = {'max_depth': max_depth,
+                       'learning_rate': learning_rate}
+    # Create base model to tune
+    XG = GradientBoostingClassifier()
+    # Create random search model and fit the data
+    XG_grid_search = GridSearchCV(
+        estimator=XG,
+        param_grid=random_grid,
+        n_jobs=-1, cv=5,
+        verbose=2,
+        scoring='f1')
+    # X_train_encoded = encode_and_bind(X_train, features_to_encode)
+    # X_test_encoded = encode_and_bind(X_test, features_to_encode)
+    if train_mode:
+        XG_grid_search.fit(X_train, y_train)
+        joblib.dump(XG_grid_search, 'XG_testing.pkl')  # save your model or results
+    else:
+        XG_grid_search = joblib.load("XG_testing.pkl")  # load your model for further usage
+
+    results(XG_grid_search, X_train, X_test, y_test, 'XG', y_train)
+
+
+def NN_pipe():
+    print_time_line_sep('NN')
+    checking = True
+    random_grid = {}
+    if checking:
+        param_grid = {'max_iter': [200],
+                      'activation': ['relu']}
+    else:
+        param_grid = {'solver': ['adam'],
+                      'max_iter': [1000, 1500, 2000],
+                      'alpha': 10.0 ** -np.arange(1, 5), 'hidden_layer_sizes': [5,15,25]}
+    # Create base model to tune
+    NN = MLPClassifier()
+
+    # Create random search model and fit the data
+    NN_grid_search = GridSearchCV(estimator=NN, param_grid=param_grid, n_jobs=-1, cv=5, verbose=2, scoring='f1')
+    # X_train = encode_and_bind(X_train, features_to_encode)
+    # X_test = encode_and_bind(X_test, features_to_encode)
+    if train_mode:
+        NN_grid_search.fit(X_train, y_train)
+        joblib.dump(NN_grid_search, 'NN_testing.pkl')  # save your model or results
+    else:
+        NN_grid_search = joblib.load("NN_testing.pkl")  # load your model for further usage
+    results(NN_grid_search, X_train, X_test, y_test, 'NN', y_train)
+
+
+def svm_pipe(X_train, X_test):
+    print_time_line_sep('SVM')
+    checking = True
+    random_grid = {}
+    alpha = [0.0001, 0.001, 0.01, 0.1]
+    max_iter = [1_000, 4_000, 7_000, 10_000]
+    if checking:
+        random_grid = {'alpha': [0.0001],
+                       'max_iter': [1_000]}
     else:
         random_grid = {'alpha': alpha,
                        'max_iter': max_iter
@@ -660,18 +644,18 @@ def svm_pipe():
         n_jobs=2, cv=5,
         verbose=2,
         scoring='f1')
-    X_train_encoded = encode_and_bind(X_train, features_to_encode)
-    X_test_encoded = encode_and_bind(X_test, features_to_encode)
+    # X_train_encoded = encode_and_bind(X_train, features_to_encode)
+    # X_test_encoded = encode_and_bind(X_test, features_to_encode)
     from sklearn.preprocessing import MinMaxScaler
-    scaling = MinMaxScaler(feature_range=(-1, 1)).fit(X_train_encoded)
-    X_train_encoded = scaling.transform(X_train_encoded)
-    X_test_encoded = scaling.transform(X_test_encoded)
+    scaling = MinMaxScaler(feature_range=(-1, 1)).fit(X_train)
+    X_train = scaling.transform(X_train)
+    X_test = scaling.transform(X_test)
     if train_mode:
-        SVM_grid_search.fit(X_train_encoded, y_train)
+        SVM_grid_search.fit(X_train, y_train)
         joblib.dump(SVM_grid_search, 'SVM_final.pkl')  # save your model or results
     else:
         SVM_grid_search = joblib.load("SVM_final.pkl")  # load your model for further usage
-    results(SVM_grid_search, X_train_encoded, X_test_encoded, y_test, "svm")
+    results(SVM_grid_search, X_train, X_test, y_test, "svm", y_train)
 
 
 def stats_to_lists(stats_to_list):
@@ -697,6 +681,7 @@ def plot_stats(stats_dict):
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.legend(loc=4, facecolor="white")
+
     def autolabel(rects):
         """
         Attach a text label above each bar displaying its height
@@ -713,13 +698,11 @@ def plot_stats(stats_dict):
     plt.show()
 
 
-def evaluate_model(y_pred, probs, train_predictions, train_probs, estimator):
+def evaluate_model(y_pred, probs, train_predictions, train_probs, estimator, y_test, y_train):
     baseline = {}
 
-    baseline['recall'] = recall_score(y_test,
-                                      [1 for _ in range(len(y_test))])
-    baseline['precision'] = precision_score(y_test,
-                                            [1 for _ in range(len(y_test))])
+    baseline['recall'] = recall_score(y_test, [1 for _ in range(len(y_test))])
+    baseline['precision'] = precision_score(y_test, [1 for _ in range(len(y_test))])
     baseline['roc'] = 0.5
     baseline['f1_score'] = 0.5
     results, train_results = {}, {}
@@ -754,7 +737,7 @@ def evaluate_model(y_pred, probs, train_predictions, train_probs, estimator):
 
 
 def plot_roc_curve(rocs):
-    plt.figure(figsize = (8, 6))
+    plt.figure(figsize=(8, 6))
     plt.rcParams['font.size'] = 16
     # Plot both curves
     plt.plot(rocs[0][0], rocs[0][1], 'b', label='baseline')
@@ -775,27 +758,47 @@ if __name__ == '__main__':
     df = read_data()
     df = fix_value_spaces_and_names(df)
     """ -----------------------------  """
+
     # TODO - to aggregation of occupation - professionals
     df = handle_mis_val(df)
-    # df_1 = df.replace(to_replace=[None], value=np.nan)
-    # result = cramers_v( df['occupation'], df['workclass'])
-    # print(result)
-    # y = df.iloc[:, 14:15]
-    # X = df.iloc[:, :14]
-    # df['education.num']= df['education.num'].map(str)
-    y = df.pop('income')
+    # sex_distribution()
     df = df.drop('native.country', axis=1)
-    df = df.drop('education.num', axis=1)
+    df = df.drop('education', axis=1)
+    # Oversampling:
+    y = df.pop('income')
+
+    print("_-_____________________________________")
+    df = pd.get_dummies(df, columns=['workclass', 'marital.status', 'occupation', 'relationship', 'race',
+                                     'sex'])
+    df_columns = df.columns.tolist()
+    df.columns = df_columns
+    df[['age', 'fnlwgt', 'capital.gain', 'capital.loss', 'hours.per.week']] = df[['age', 'fnlwgt', 'capital.gain', 'capital.loss', 'hours.per.week']].astype(int)
 
     X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42)
+    oversample = RandomOverSampler()
+    X_train_overSample, y_train_overSample = oversample.fit_resample(X_train, y_train)
+    # Check value distribution
+    # ---------------------------------------------------------------------
     features_to_encode = df.columns[df.dtypes == object].tolist()
-    col_trans = make_column_transformer((OneHotEncoder(), features_to_encode), remainder="passthrough")
+    # col_trans = make_column_transformer((OneHotEncoder(), features_to_encode), remainder="passthrough")
     # print("col_trans", col_trans)
+
     stats, rocs = [], []
-    rf_pipe()
+    # X_train, y_train = X_train_overSample, y_train_overSample
+    rf_pipe() # (x train,x test,  y_train,y_test) both X with dummies.
     XGBoost_pipe()
     NN_pipe()
-    svm_pipe()
+    svm_pipe(X_train, X_test)
     plot_stats(stats)
     plot_roc_curve(rocs)
     # svm = SVC(C=0.013894954943731374)
+
+    # ________________ KNN ______________ insert after pd.get_dummis
+    # scaler = MinMaxScaler()
+    # df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
+    # print("_-_____________________________________")
+    # imputer = KNNImputer(n_neighbors=5)
+    # df = pd.DataFrame(imputer.fit_transform(df), columns=df.columns)
+    # df_columns = df.columns.tolist()
+    # df = pd.DataFrame(scaler.inverse_transform(df))
+    # ________________ KNN ______________
