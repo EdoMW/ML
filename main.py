@@ -13,6 +13,7 @@ from matplotlib.ticker import FuncFormatter, EngFormatter
 import seaborn as sns
 
 from scipy.stats import chi2_contingency
+from sklearn.linear_model import SGDClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV, train_test_split, RandomizedSearchCV
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
@@ -23,6 +24,8 @@ from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, r
     roc_auc_score, roc_curve, f1_score
 
 train_mode = False
+fprs, tprs = [], []
+
 
 pd.set_option('display.max_columns', None)
 pd.set_option('max_columns', None)
@@ -445,9 +448,7 @@ def encode_and_bind(original_dataframe, features_to_encode):
     return(res)
 
 
-def plot_confusion_matrix(cm, classes, normalize = False,
-                          title='Confusion matrix',
-                          cmap=plt.cm.Greens): # can change color
+def plot_confusion_matrix(cm, classes, normalize = False, title='Confusion matrix',cmap=plt.cm.Blues):
     plt.figure(figsize = (10, 10))
     plt.imshow(cm, interpolation='nearest', cmap=cmap)
     plt.title(title, size = 24)
@@ -470,54 +471,25 @@ def plot_confusion_matrix(cm, classes, normalize = False,
     plt.show()
 
 
-def evaluate_model(y_pred, probs,train_predictions, train_probs):
-    baseline = {}
-    baseline['recall']=recall_score(y_test,
-                    [1 for _ in range(len(y_test))])
-    baseline['precision'] = precision_score(y_test,
-                    [1 for _ in range(len(y_test))])
-    baseline['roc'] = 0.5
-    results = {}
-    results['recall'] = recall_score(y_test, y_pred)
-    results['precision'] = precision_score(y_test, y_pred)
-    results['roc'] = roc_auc_score(y_test, probs)
-    train_results = {}
-    train_results['recall'] = recall_score(y_train,       train_predictions)
-    train_results['precision'] = precision_score(y_train, train_predictions)
-    train_results['roc'] = roc_auc_score(y_train, train_probs)
-    for metric in ['recall', 'precision', 'roc']:
-        print(f'{metric.capitalize()} '
-              f'Baseline: {round(baseline[metric], 2)} '
-              f'Test: {round(results[metric], 2)} '
-              f'Train: {round(train_results[metric], 2)} ')
-     # Calculate false positive rates and true positive rates
-    base_fpr, base_tpr, _ = roc_curve(y_test, [1 for _ in range(len(y_test))])
-    model_fpr, model_tpr, _ = roc_curve(y_test, probs)
-    plt.figure(figsize = (8, 6))
-    plt.rcParams['font.size'] = 16
-    # Plot both curves
-    plt.plot(base_fpr, base_tpr, 'b', label = 'baseline')
-    plt.plot(model_fpr, model_tpr, 'r', label = 'model')
-    plt.legend()
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('ROC Curves')
-    plt.show()
-
-
-def results(grid_search_model, X_train_encoded, X_test_encoded, y_test):
+def results(grid_search_model, X_train_encoded, X_test_encoded, y_test, estimator):
     y_pred_acc = grid_search_model.predict(X_test_encoded)
     cm = confusion_matrix(y_test, y_pred_acc)
     plot_confusion_matrix(cm, classes=['0 - <=50K', '1 - >50K'],
                           title='income Confusion Matrix')
-    probs = grid_search_model.predict_proba(X_test_encoded)[:,1]
-    train_probs = grid_search_model.predict_proba(X_train_encoded)[:,1]
+    if estimator == 'svm':
+        probs = grid_search_model.decision_function(X_test_encoded)
+        train_probs = grid_search_model.decision_function(X_train_encoded)
+    else:
+        probs = grid_search_model.predict_proba(X_test_encoded)[:, 1]
+        train_probs = grid_search_model.predict_proba(X_train_encoded)[:, 1]
+
     train_predictions = grid_search_model.predict(X_train_encoded)
-    evaluate_model(y_pred_acc,probs,train_predictions,train_probs)
+    evaluate_model(y_pred_acc, probs, train_predictions, train_probs, estimator)
 
 
 def NN_pipe():
-    checking = False
+    print_time_line_sep('NN')
+    checking = True
     random_grid = {}
     NN_classifier = MLPClassifier()
     pipe = make_pipeline(col_trans, NN_classifier)
@@ -526,15 +498,15 @@ def NN_pipe():
     print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
 
     if checking:
-        param_grid = { 'max_iter': [1000,  1500, 2000],
-                       'hidden_layer_sizes': np.arange(3, 30,3)}
+        param_grid = { 'max_iter': [15000],
+                       'hidden_layer_sizes': np.arange(15,16)}
     else:
         param_grid = {'solver': ['lbfgs'],
                       'max_iter': [1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000],
                       'alpha': 10.0 ** -np.arange(1, 10), 'hidden_layer_sizes': np.arange(5, 20,5)}
     # Create base model to tune
     NN = MLPClassifier()
-    print(NN)
+
     # Create random search model and fit the data
     NN_grid_search = GridSearchCV(estimator=NN, param_grid=param_grid, n_jobs=-1, cv=5, verbose=2, scoring='f1')
     X_train_encoded = encode_and_bind(X_train, features_to_encode)
@@ -543,12 +515,13 @@ def NN_pipe():
         NN_grid_search.fit(X_train_encoded, y_train)
         joblib.dump(NN_grid_search, 'NN_final.pkl')  # save your model or results
     else:
-        XG_random = joblib.load("NN_final.pkl")  # load your model for further usage
-    results(NN_grid_search, X_train_encoded, X_test_encoded, y_test)
+        NN_grid_search = joblib.load("NN_final.pkl")  # load your model for further usage
+    results(NN_grid_search, X_train_encoded, X_test_encoded, y_test, 'NN')
 
 
 def XGBoost_pipe():
-    checking = False
+    print_time_line_sep('XGBoost')
+    checking = True
     random_grid = {}
     XGBoost_classifier = GradientBoostingClassifier()
     pipe = make_pipeline(col_trans, XGBoost_classifier)
@@ -557,12 +530,11 @@ def XGBoost_pipe():
     print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
 
     n_estimators = [int(x) for x in np.linspace(start=50, stop=350, num=5)]
-    max_depth = [int(x) for x in np.linspace(10, 110, num=5)]  # Maximum number of levels in tree
-    max_depth.append(None)
+    max_depth = [int(x) for x in np.linspace(10, 110, num=5)]  # Maximum number of levels in tree #todo change to very small values!
     min_samples_split = [2, 5, 10]  # Minimum number of samples required to split a node
     if checking:
-        random_grid = {'n_estimators': [50,100],
-                       'max_depth': [None, 5]}
+        random_grid = {'n_estimators': [100],
+                       'max_depth': [2]}
     else:
         random_grid = {'n_estimators': n_estimators,
                        'max_depth': max_depth,
@@ -583,8 +555,9 @@ def XGBoost_pipe():
         XG_grid_search.fit(X_train_encoded, y_train)
         joblib.dump(XG_grid_search, 'XG_final.pkl')  # save your model or results
     else:
-        XG_random = joblib.load("XG_final.pkl")  # load your model for further usage
-    results(XG_grid_search, X_train_encoded, X_test_encoded, y_test)
+        XG_grid_search = joblib.load("XG_final.pkl")  # load your model for further usage
+
+    results(XG_grid_search, X_train_encoded, X_test_encoded, y_test, 'XG')
 
 
 def plot_feature_importance(X_train_en, grid_search_object):
@@ -616,28 +589,25 @@ def plot_feature_importance(X_train_en, grid_search_object):
     values = list(data.values())
     y_pos = np.arange(len(names))
     plt.bar(y_pos, values, align='center', alpha=0.5)
-    plt.xticks(y_pos, names)
+    plt.xticks(y_pos, names, rotation=90)
     plt.ylabel('Usage')
-    plt.set_title("Feature importance", fontsize=15, fontweight="bold")
+    plt.title("Feature importance", fontsize=15, fontweight="bold")
+    plt.subplots_adjust(left=0.35)
     plt.show()
 
 
 def rf_pipe():
+    print_time_line_sep('Random Forest')
     checking = True
     random_grid = {}
-    # rf_classifier = RandomForestClassifier()
-    # pipe = make_pipeline(col_trans, rf_classifier)
-    # pipe.fit(X_train, y_train)
-    # y_pred = pipe.predict(X_test)
-    # print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
     n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=5)]
     max_depth = [int(x) for x in np.linspace(10, 110, num=5)]  # Maximum number of levels in tree
     max_depth.append(None)
     min_samples_split = [2, 5]  # Minimum number of samples required to split a node
     bootstrap = [True]  # Method of selecting samples for training each tree
     if checking:
-        random_grid = {'n_estimators': [35,40],
-                       'max_depth': [15,25,None]}
+        random_grid = {'n_estimators': [35],
+                       'max_depth': [19]}
     else:
         random_grid = {'n_estimators': n_estimators,
                        'max_depth': max_depth,
@@ -657,11 +627,146 @@ def rf_pipe():
         joblib.dump(rf_random, 'rf_final.pkl')  # save your model or results
     else:
         rf_random = joblib.load("rf_final.pkl")  # load your model for further usage
-    results(rf_random, X_train_encoded, X_test_encoded, y_test)
+    results(rf_random, X_train_encoded, X_test_encoded, y_test, 'RF')
     print("feature importance")
     plot_feature_importance(X_train_en=X_train_encoded, grid_search_object=rf_random)
 
 
+def svm_pipe():
+    print_time_line_sep('SVM')
+    checking = False
+    random_grid = {}
+    # svm_classifier = SVC()
+    # pipe = make_pipeline(col_trans, svm_classifier)
+    # pipe.fit(X_train, y_train)
+    # y_pred = pipe.predict(X_test)
+    # print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
+
+    alpha = [0.0001]
+    max_iter = [1_000]  # Maximum number of levels in tree
+    if checking:
+        random_grid = {'alpha': alpha,
+                       'max_iter': max_iter}
+    else:
+        random_grid = {'alpha': alpha,
+                       'max_iter': max_iter
+                       }
+    # Create base model to tune
+    SVM = SGDClassifier()
+    # Create random search model and fit the data
+    SVM_grid_search = GridSearchCV(
+        estimator=SVM,
+        param_grid=random_grid,
+        n_jobs=2, cv=5,
+        verbose=2,
+        scoring='f1')
+    X_train_encoded = encode_and_bind(X_train, features_to_encode)
+    X_test_encoded = encode_and_bind(X_test, features_to_encode)
+    from sklearn.preprocessing import MinMaxScaler
+    scaling = MinMaxScaler(feature_range=(-1, 1)).fit(X_train_encoded)
+    X_train_encoded = scaling.transform(X_train_encoded)
+    X_test_encoded = scaling.transform(X_test_encoded)
+    if train_mode:
+        SVM_grid_search.fit(X_train_encoded, y_train)
+        joblib.dump(SVM_grid_search, 'SVM_final.pkl')  # save your model or results
+    else:
+        SVM_grid_search = joblib.load("SVM_final.pkl")  # load your model for further usage
+    results(SVM_grid_search, X_train_encoded, X_test_encoded, y_test, "svm")
+
+
+def stats_to_lists(stats_to_list):
+    a = [list(col) for col in zip(*[d.values() for d in stats_to_list])]
+    return a[0], a[1], a[2]
+
+
+def plot_stats(stats_dict):
+    """
+    plot bar chart of roc, F1, recall, precision
+    """
+    recalls, precisions, f1_scores = stats_to_lists(stats_dict)
+    labels = ['RF', 'XGBoost', 'NN', 'SVM']
+    x = np.arange(len(labels))  # the label locations
+    width = 0.29  # the width of the bars
+    fig, ax = plt.subplots()
+    rects1 = ax.bar(x - width, recalls, width, label='Recall')
+    rects2 = ax.bar(x, precisions, width, label='Precision')
+    rects3 = ax.bar(x + width, f1_scores, width, label='F1_score')
+    # Add some text for labels, title and custom x-axis tick labels, etc.
+    ax.set_ylabel('Scores')
+    ax.set_title('perfomnces')
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.legend(loc=4, facecolor="white")
+    def autolabel(rects):
+        """
+        Attach a text label above each bar displaying its height
+        """
+        for rect in rects:
+            height = round(rect.get_height(), 2)
+            ax.text(rect.get_x(), height,
+                    height, va='bottom')
+
+    autolabel(rects1)
+    autolabel(rects2)
+    autolabel(rects3)
+    plt.yticks(np.arange(0, 1.2, 0.2))
+    plt.show()
+
+
+def evaluate_model(y_pred, probs, train_predictions, train_probs, estimator):
+    baseline = {}
+
+    baseline['recall'] = recall_score(y_test,
+                                      [1 for _ in range(len(y_test))])
+    baseline['precision'] = precision_score(y_test,
+                                            [1 for _ in range(len(y_test))])
+    baseline['roc'] = 0.5
+    baseline['f1_score'] = 0.5
+    results, train_results = {}, {}
+    results['recall'] = recall_score(y_test, y_pred)
+    results['precision'] = precision_score(y_test, y_pred)
+    results['f1_score'] = f1_score(y_test, y_pred)
+    # results['roc'] = roc_auc_score(y_test, probs)
+    train_results['recall'] = recall_score(y_train, train_predictions)
+    train_results['precision'] = precision_score(y_train, train_predictions)
+    train_results['f1_score'] = f1_score(y_train, train_predictions)
+    # train_results['roc'] = roc_auc_score(y_train, train_probs)
+    stats.append(results)
+    for metric in ['recall', 'precision', 'f1_score']:
+        print(f'{metric.capitalize()} '
+              f'Baseline: {round(baseline[metric], 2)} '
+              f'Test: {round(results[metric], 2)} '
+              f'Train: {round(train_results[metric], 2)} ')
+    # Calculate false positive rates and true positive rates
+    base_fpr, base_tpr, _ = roc_curve(y_test, [1 for _ in range(len(y_test))])
+    model_fpr, model_tpr, _ = roc_curve(y_test, probs)
+    rocs.append([base_fpr, base_tpr, model_fpr, model_tpr])
+    plt.figure(figsize=(8, 6))
+    plt.rcParams['font.size'] = 16
+    # Plot both curves
+    plt.plot(base_fpr, base_tpr, 'b', label='baseline')
+    plt.plot(model_fpr, model_tpr, 'r', label='model')
+    plt.legend()
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curves')
+    plt.show()
+
+
+def plot_roc_curve(rocs):
+    plt.figure(figsize = (8, 6))
+    plt.rcParams['font.size'] = 16
+    # Plot both curves
+    plt.plot(rocs[0][0], rocs[0][1], 'b', label='baseline')
+    plt.plot(rocs[0][2], rocs[0][3], 'r', label='RF')
+    plt.plot(rocs[1][2], rocs[1][3], 'g', label='XG')
+    plt.plot(rocs[2][2], rocs[2][3], 'y', label='NN')
+    plt.plot(rocs[3][2], rocs[3][3], 'r', label='SVM')
+    plt.legend()
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curves')
+    plt.show()
 
 
 if __name__ == '__main__':
@@ -684,9 +789,13 @@ if __name__ == '__main__':
 
     X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42)
     features_to_encode = df.columns[df.dtypes == object].tolist()
-    print("features_to_encode", features_to_encode)
     col_trans = make_column_transformer((OneHotEncoder(), features_to_encode), remainder="passthrough")
     # print("col_trans", col_trans)
+    stats, rocs = [], []
     rf_pipe()
-    # XGBoost_pipe()
-    # NN_pipe()
+    XGBoost_pipe()
+    NN_pipe()
+    svm_pipe()
+    plot_stats(stats)
+    plot_roc_curve(rocs)
+    # svm = SVC(C=0.013894954943731374)
