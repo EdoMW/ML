@@ -1,5 +1,4 @@
 import random
-
 import pandas as pd
 import numpy as np
 from time import localtime, strftime, time
@@ -14,6 +13,7 @@ from matplotlib.ticker import FuncFormatter, EngFormatter
 import seaborn as sns
 
 from scipy.stats import chi2_contingency
+from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV, train_test_split, RandomizedSearchCV
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.preprocessing import OneHotEncoder
@@ -505,8 +505,50 @@ def evaluate_model(y_pred, probs,train_predictions, train_probs):
     plt.show()
 
 
+def results(grid_search_model, X_train_encoded, X_test_encoded, y_test):
+    y_pred_acc = grid_search_model.predict(X_test_encoded)
+    cm = confusion_matrix(y_test, y_pred_acc)
+    plot_confusion_matrix(cm, classes=['0 - <=50K', '1 - >50K'],
+                          title='income Confusion Matrix')
+    probs = grid_search_model.predict_proba(X_test_encoded)[:,1]
+    train_probs = grid_search_model.predict_proba(X_train_encoded)[:,1]
+    train_predictions = grid_search_model.predict(X_train_encoded)
+    evaluate_model(y_pred_acc,probs,train_predictions,train_probs)
+
+
+def NN_pipe():
+    checking = False
+    random_grid = {}
+    NN_classifier = MLPClassifier()
+    pipe = make_pipeline(col_trans, NN_classifier)
+    pipe.fit(X_train, y_train)
+    y_pred = pipe.predict(X_test)
+    print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
+
+    if checking:
+        param_grid = { 'max_iter': [1000,  1500, 2000],
+                       'hidden_layer_sizes': np.arange(3, 30,3)}
+    else:
+        param_grid = {'solver': ['lbfgs'],
+                      'max_iter': [1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000],
+                      'alpha': 10.0 ** -np.arange(1, 10), 'hidden_layer_sizes': np.arange(5, 20,5)}
+    # Create base model to tune
+    NN = MLPClassifier()
+    print(NN)
+    # Create random search model and fit the data
+    NN_grid_search = GridSearchCV(estimator=NN, param_grid=param_grid, n_jobs=-1, cv=5, verbose=2, scoring='f1')
+    X_train_encoded = encode_and_bind(X_train, features_to_encode)
+    X_test_encoded = encode_and_bind(X_test, features_to_encode)
+    if train_mode:
+        NN_grid_search.fit(X_train_encoded, y_train)
+        joblib.dump(NN_grid_search, 'NN_final.pkl')  # save your model or results
+    else:
+        XG_random = joblib.load("NN_final.pkl")  # load your model for further usage
+    results(NN_grid_search, X_train_encoded, X_test_encoded, y_test)
+
+
 def XGBoost_pipe():
-    checking = True
+    checking = False
     random_grid = {}
     XGBoost_classifier = GradientBoostingClassifier()
     pipe = make_pipeline(col_trans, XGBoost_classifier)
@@ -514,11 +556,10 @@ def XGBoost_pipe():
     y_pred = pipe.predict(X_test)
     print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
 
-    n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=5)]
-    max_depth = [int(x) for x in np.linspace(10, 110, num=3)]  # Maximum number of levels in tree
+    n_estimators = [int(x) for x in np.linspace(start=50, stop=350, num=5)]
+    max_depth = [int(x) for x in np.linspace(10, 110, num=5)]  # Maximum number of levels in tree
     max_depth.append(None)
     min_samples_split = [2, 5, 10]  # Minimum number of samples required to split a node
-    bootstrap = [True]  # Method of selecting samples for training each tree
     if checking:
         random_grid = {'n_estimators': [50,100],
                        'max_depth': [None, 5]}
@@ -526,13 +567,11 @@ def XGBoost_pipe():
         random_grid = {'n_estimators': n_estimators,
                        'max_depth': max_depth,
                        'min_samples_split': min_samples_split,
-                       'max_leaf_nodes': [None] + list(np.linspace(10, 50, 500).astype(int)),
-                       'bootstrap': bootstrap,
                        }
     # Create base model to tune
     XG = GradientBoostingClassifier()
     # Create random search model and fit the data
-    XG_random = GridSearchCV(
+    XG_grid_search = GridSearchCV(
         estimator=XG,
         param_grid=random_grid,
         n_jobs=-1, cv=5,
@@ -541,68 +580,87 @@ def XGBoost_pipe():
     X_train_encoded = encode_and_bind(X_train, features_to_encode)
     X_test_encoded = encode_and_bind(X_test, features_to_encode)
     if train_mode:
-        XG_random.fit(X_train_encoded, y_train)
-        joblib.dump(XG_random, 'model_XG_final.pkl')  # save your model or results
+        XG_grid_search.fit(X_train_encoded, y_train)
+        joblib.dump(XG_grid_search, 'XG_final.pkl')  # save your model or results
     else:
-        XG_random = joblib.load("model_XG_final.pkl")  # load your model for further usage
-    y_pred_acc = XG_random.predict(X_test_encoded)
-    cm = confusion_matrix(y_test, y_pred_acc)
-    plot_confusion_matrix(cm, classes=['0 - <=50K', '1 - >50K'],
-                          title='income Confusion Matrix')
-    probs = XG_random.predict_proba(X_test_encoded)[:,1]
-    train_probs = XG_random.predict_proba(X_train_encoded)[:,1]
-    train_predictions = XG_random.predict(X_train_encoded)
-    evaluate_model(y_pred_acc,probs,train_predictions,train_probs)
+        XG_random = joblib.load("XG_final.pkl")  # load your model for further usage
+    results(XG_grid_search, X_train_encoded, X_test_encoded, y_test)
+
+
+def plot_feature_importance(X_train_en, grid_search_object):
+    feature_importances = list(zip(X_train_en, grid_search_object.best_estimator_.feature_importances_))
+    feature_importances_ranked = sorted(feature_importances, key=lambda x: x[1], reverse=True)
+    [print('Feature: {:35} Importance: {}'.format(*pair)) for pair in feature_importances_ranked]
+
+    df_names = pd.DataFrame(feature_importances, columns=['Name', 'score'])  # 63
+    column_names = df.columns.tolist()  # 12
+    df_temp = pd.DataFrame(columns=column_names)  # 12
+    df_temp.loc[len(df)] = 0
+    print(df_temp)
+    for i in range(df_names.shape[0]):
+        name = df_names.iloc[[i]].values[0][0]
+        print(name)
+        for idx, j in enumerate(column_names):
+            if j in name:
+                df_temp.iloc[0, df_temp.columns.get_loc(j)] += df_names.iloc[[i]].values[0][1]
+                print("value to add: ", df_names.iloc[[i]].values[0][1])
+                break
+    print(df_temp)
+    # todo: make it nicer
+    new_temp_df = df_temp.sort_values(df_temp.last_valid_index(), axis=1, ascending=[False])
+    # new_temp_df["sum"] = new_temp_df.sum(axis=1) # check it sum's to 1
+    # print(new_temp_df)
+    # change order of columns, or plot horizontally
+    data = new_temp_df.iloc[0].to_dict()
+    names = list(data.keys())
+    values = list(data.values())
+    y_pos = np.arange(len(names))
+    plt.bar(y_pos, values, align='center', alpha=0.5)
+    plt.xticks(y_pos, names)
+    plt.ylabel('Usage')
+    plt.set_title("Feature importance", fontsize=15, fontweight="bold")
+    plt.show()
 
 
 def rf_pipe():
     checking = True
     random_grid = {}
-    rf_classifier = RandomForestClassifier()
-    pipe = make_pipeline(col_trans, rf_classifier)
-    pipe.fit(X_train, y_train)
-    y_pred = pipe.predict(X_test)
-    print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
-
+    # rf_classifier = RandomForestClassifier()
+    # pipe = make_pipeline(col_trans, rf_classifier)
+    # pipe.fit(X_train, y_train)
+    # y_pred = pipe.predict(X_test)
+    # print(f"The accuracy of the model is {round(accuracy_score(y_test, y_pred), 3) * 100} %")
     n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=5)]
-    max_depth = [int(x) for x in np.linspace(10, 110, num=3)]  # Maximum number of levels in tree
+    max_depth = [int(x) for x in np.linspace(10, 110, num=5)]  # Maximum number of levels in tree
     max_depth.append(None)
-    min_samples_split = [2, 5, 10]  # Minimum number of samples required to split a node
+    min_samples_split = [2, 5]  # Minimum number of samples required to split a node
     bootstrap = [True]  # Method of selecting samples for training each tree
     if checking:
-        random_grid = {'n_estimators': [50,100],
-                       'max_depth': [None, 5]}
+        random_grid = {'n_estimators': [35,40],
+                       'max_depth': [15,25,None]}
     else:
         random_grid = {'n_estimators': n_estimators,
                        'max_depth': max_depth,
                        'min_samples_split': min_samples_split,
-                       'max_leaf_nodes': [None] + list(np.linspace(10, 50, 500).astype(int)),
                        'bootstrap': bootstrap,
                        }
     # Create base model to tune
     rf = RandomForestClassifier(oob_score=True)
+
     # Create random search model and fit the data
-    rf_random = GridSearchCV(
-        estimator=rf,
-        param_grid=random_grid,
-        n_jobs=-1, cv=5,
-        verbose=2,
-        scoring='f1')
+    rf_random = GridSearchCV(estimator=rf, param_grid=random_grid, n_jobs=-1, cv=5, verbose=2, scoring='f1')
     X_train_encoded = encode_and_bind(X_train, features_to_encode)
     X_test_encoded = encode_and_bind(X_test, features_to_encode)
+    # rf.fit(X_train_encoded, y_train)
     if train_mode:
         rf_random.fit(X_train_encoded, y_train)
-        joblib.dump(rf_random, 'model_gs_final.pkl')  # save your model or results
+        joblib.dump(rf_random, 'rf_final.pkl')  # save your model or results
     else:
-        rf_random = joblib.load("model_gs1.pkl")  # load your model for further usage
-    y_pred_acc = rf_random.predict(X_test_encoded)
-    cm = confusion_matrix(y_test, y_pred_acc)
-    plot_confusion_matrix(cm, classes=['0 - <=50K', '1 - >50K'],
-                          title='income Confusion Matrix')
-    probs = rf_random.predict_proba(X_test_encoded)[:,1]
-    train_probs = rf_random.predict_proba(X_train_encoded)[:,1]
-    train_predictions = rf_random.predict(X_train_encoded)
-    evaluate_model(y_pred_acc,probs,train_predictions,train_probs)
+        rf_random = joblib.load("rf_final.pkl")  # load your model for further usage
+    results(rf_random, X_train_encoded, X_test_encoded, y_test)
+    print("feature importance")
+    plot_feature_importance(X_train_en=X_train_encoded, grid_search_object=rf_random)
+
 
 
 
@@ -619,18 +677,16 @@ if __name__ == '__main__':
     # print(result)
     # y = df.iloc[:, 14:15]
     # X = df.iloc[:, :14]
-
+    # df['education.num']= df['education.num'].map(str)
     y = df.pop('income')
     df = df.drop('native.country', axis=1)
+    df = df.drop('education.num', axis=1)
 
     X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42)
     features_to_encode = df.columns[df.dtypes == object].tolist()
+    print("features_to_encode", features_to_encode)
     col_trans = make_column_transformer((OneHotEncoder(), features_to_encode), remainder="passthrough")
-    XGBoost_pipe()
-# def rf_pipe():
-
-
-
-
-
-
+    # print("col_trans", col_trans)
+    rf_pipe()
+    # XGBoost_pipe()
+    # NN_pipe()
