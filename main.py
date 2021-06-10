@@ -27,7 +27,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score, \
     roc_auc_score, roc_curve, f1_score
 
-train_mode = True
+train_mode = False
 fprs, tprs = [], []
 
 pd.set_option('display.max_columns', None)
@@ -127,7 +127,7 @@ def income_general_distribution():
     # # visualize frequency distribution of income variable
     f = plt.subplots(1, 1, figsize=(10, 8))
     # ax[0] = df['income'].value_counts().plot.pie(explode=[0,0],autopct='%1.1f%%',ax=ax[0],shadow=True)
-    df['income'].value_counts().plot(kind='pie', autopct='%1.1f%%', colors=["red", "green"],
+    df['income'].value_counts().plot(kind='pie', autopct='%1.1f%%', colors=['tomato', 'navajowhite'],
                                      startangle=90, shadow=False, legend=True, fontsize=19, labels=["<=50K$", ">50K$"])
     plt.title('Income distribution', fontsize=22, fontweight="bold")
     plt.legend(fontsize='x-large')
@@ -458,8 +458,8 @@ def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix'
     plt.title(title, size=24)
     plt.colorbar(aspect=4)
     tick_marks = np.arange(len(classes))
-    plt.xticks(tick_marks, classes, rotation=45, size=14)
-    plt.yticks(tick_marks, classes, size=14)
+    plt.xticks(tick_marks, classes, rotation=0, size=18)
+    plt.yticks(tick_marks, classes, size=18)
     fmt = '.2f' if normalize else 'd'
     thresh = cm.max() / 2.
     # Label the plot
@@ -491,25 +491,22 @@ def results(grid_search_model, X_train_encoded, X_test_encoded, y_test, estimato
     evaluate_model(y_pred_acc, probs, train_predictions, train_probs, estimator,y_test, y_train)
 
 
-def plot_feature_importance(X_train_en, grid_search_object):
+def plot_feature_importance(X_train_en, grid_search_object, orig_name):
     feature_importances = list(zip(X_train_en, grid_search_object.best_estimator_.feature_importances_))
     feature_importances_ranked = sorted(feature_importances, key=lambda x: x[1], reverse=True)
-    [print('Feature: {:35} Importance: {}'.format(*pair)) for pair in feature_importances_ranked]
+    # [print('Feature: {:35} Importance: {}'.format(*pair)) for pair in feature_importances_ranked]
 
     df_names = pd.DataFrame(feature_importances, columns=['Name', 'score'])  # 63
-    column_names = df.columns.tolist()  # 12
+    column_names = orig_name  # 12
     df_temp = pd.DataFrame(columns=column_names)  # 12
     df_temp.loc[len(df)] = 0
-    print(df_temp)
     for i in range(df_names.shape[0]):
         name = df_names.iloc[[i]].values[0][0]
-        print(name)
         for idx, j in enumerate(column_names):
             if j in name:
                 df_temp.iloc[0, df_temp.columns.get_loc(j)] += df_names.iloc[[i]].values[0][1]
-                print("value to add: ", df_names.iloc[[i]].values[0][1])
+                # print("value to add: ", df_names.iloc[[i]].values[0][1])
                 break
-    print(df_temp)
     # todo: make it nicer
     new_temp_df = df_temp.sort_values(df_temp.last_valid_index(), axis=1, ascending=[False])
     # new_temp_df["sum"] = new_temp_df.sum(axis=1) # check it sum's to 1
@@ -521,19 +518,20 @@ def plot_feature_importance(X_train_en, grid_search_object):
     y_pos = np.arange(len(names))
     plt.bar(y_pos, values, align='center', alpha=0.5)
     plt.xticks(y_pos, names, rotation=90)
-    plt.ylabel('Usage')
+    plt.ylabel('Importance')
     plt.title("Feature importance", fontsize=15, fontweight="bold")
-    plt.subplots_adjust(left=0.35)
+    plt.subplots_adjust(left=0.15)
+    plt.subplots_adjust(bottom=0.45)
     plt.show()
 
 
-def rf_pipe():
+def rf_pipe(orig_names_list):
     print_time_line_sep('Random Forest')
-    checking = True
-    train_mode = True
+    checking = False
+    # train_mode = True
     random_grid = {}
-    n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=5)]
-    max_depth = [int(x) for x in np.linspace(10, 110, num=5)]  # Maximum number of levels in tree
+    n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=9)]
+    max_depth = [10,30,50]  # Maximum number of levels in tree
     max_depth.append(None)
     min_samples_split = [2, 5]  # Minimum number of samples required to split a node
     bootstrap = [True]  # Method of selecting samples for training each tree
@@ -543,7 +541,7 @@ def rf_pipe():
     else:
         random_grid = {'n_estimators': n_estimators,
                        'max_depth': max_depth,
-                       'min_samples_split': min_samples_split,
+                       # 'min_samples_split': min_samples_split,
                        'bootstrap': bootstrap,
                        }
     # Create base model to tune
@@ -556,20 +554,28 @@ def rf_pipe():
     # rf.fit(X_train_encoded, y_train)
     if train_mode:
         rf_random.fit(X_train, y_train)
-        joblib.dump(rf_random, 'rf_testing.pkl')  # save your model or results
+        joblib.dump(rf_random, 'RF_final2.pkl')  # save your model or results
     else:
-        rf_random = joblib.load("rf_testing.pkl")  # load your model for further usage
+        rf_random = joblib.load("RF_final2.pkl")  # load your model for further usage
     results(rf_random, X_train, X_test, y_test, 'RF', y_train)
     # print("feature importance")
-    plot_feature_importance(X_train_en=X_train, grid_search_object=rf_random)
+    plot_feature_importance(X_train_en=X_train, grid_search_object=rf_random, orig_name=orig_names_list)
+
+    # for ind, i in enumerate(Cs):
+    #     plt.plot(n_estimators, max_depth[ind], label='C: ' + str(i))
+    # plt.legend()
+    # plt.xlabel('Gamma')
+    # plt.ylabel('Mean score')
+    # plt.show()
+
 
 
 def XGBoost_pipe():
     print_time_line_sep('XGBoost')
-    checking = True
+    checking = False
     random_grid = {}
-    max_depth = [1,2,3,4,5]  # Maximum number of levels in tree #todo change to very small values!
-    learning_rate = [0.01, 0.1, 1]
+    max_depth = [1,2,3]  # Maximum number of levels in tree
+    learning_rate = [0.0001, 0.001, 0.01, 0.1, 1]
     if checking:
         random_grid = {'n_estimators': [100],
                        'learning_rate': [0.1]}
@@ -589,24 +595,24 @@ def XGBoost_pipe():
     # X_test_encoded = encode_and_bind(X_test, features_to_encode)
     if train_mode:
         XG_grid_search.fit(X_train, y_train)
-        joblib.dump(XG_grid_search, 'XG_testing.pkl')  # save your model or results
+        joblib.dump(XG_grid_search, 'XG_final2.pkl')  # save your model or results
     else:
-        XG_grid_search = joblib.load("XG_testing.pkl")  # load your model for further usage
+        XG_grid_search = joblib.load("XG_final2.pkl")  # load your model for further usage
 
     results(XG_grid_search, X_train, X_test, y_test, 'XG', y_train)
 
 
 def NN_pipe():
     print_time_line_sep('NN')
-    checking = True
+    checking = False
     random_grid = {}
     if checking:
         param_grid = {'max_iter': [200],
                       'activation': ['relu']}
     else:
         param_grid = {'solver': ['adam'],
-                      'max_iter': [1000, 1500, 2000],
-                      'alpha': 10.0 ** -np.arange(1, 5), 'hidden_layer_sizes': [5,15,25]}
+                      'max_iter': [200, 500, 1000],
+                      'alpha': [0.00001], 'hidden_layer_sizes': [5,25,45,65,85,105]}
     # Create base model to tune
     NN = MLPClassifier()
 
@@ -616,15 +622,15 @@ def NN_pipe():
     # X_test = encode_and_bind(X_test, features_to_encode)
     if train_mode:
         NN_grid_search.fit(X_train, y_train)
-        joblib.dump(NN_grid_search, 'NN_testing.pkl')  # save your model or results
+        joblib.dump(NN_grid_search, 'NN_final2.pkl')  # save your model or results
     else:
-        NN_grid_search = joblib.load("NN_testing.pkl")  # load your model for further usage
+        NN_grid_search = joblib.load("NN_final2.pkl")  # load your model for further usage
     results(NN_grid_search, X_train, X_test, y_test, 'NN', y_train)
 
 
 def svm_pipe(X_train, X_test):
     print_time_line_sep('SVM')
-    checking = True
+    checking = False
     random_grid = {}
     alpha = [0.0001, 0.001, 0.01, 0.1]
     max_iter = [1_000, 4_000, 7_000, 10_000]
@@ -652,9 +658,9 @@ def svm_pipe(X_train, X_test):
     X_test = scaling.transform(X_test)
     if train_mode:
         SVM_grid_search.fit(X_train, y_train)
-        joblib.dump(SVM_grid_search, 'SVM_final.pkl')  # save your model or results
+        joblib.dump(SVM_grid_search, 'SVM_final2.pkl')  # save your model or results
     else:
-        SVM_grid_search = joblib.load("SVM_final.pkl")  # load your model for further usage
+        SVM_grid_search = joblib.load("SVM_final2.pkl")  # load your model for further usage
     results(SVM_grid_search, X_train, X_test, y_test, "svm", y_train)
 
 
@@ -680,7 +686,7 @@ def plot_stats(stats_dict):
     ax.set_title('perfomnces')
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
-    ax.legend(loc=4, facecolor="white")
+    ax.legend(loc=3, facecolor="white")
 
     def autolabel(rects):
         """
@@ -758,7 +764,7 @@ if __name__ == '__main__':
     df = read_data()
     df = fix_value_spaces_and_names(df)
     """ -----------------------------  """
-
+    income_general_distribution()
     # TODO - to aggregation of occupation - professionals
     df = handle_mis_val(df)
     # sex_distribution()
@@ -766,6 +772,8 @@ if __name__ == '__main__':
     df = df.drop('education', axis=1)
     # Oversampling:
     y = df.pop('income')
+
+    orig_names = df.columns.tolist()
 
     print("_-_____________________________________")
     df = pd.get_dummies(df, columns=['workclass', 'marital.status', 'occupation', 'relationship', 'race',
@@ -784,14 +792,19 @@ if __name__ == '__main__':
     # print("col_trans", col_trans)
 
     stats, rocs = [], []
-    # X_train, y_train = X_train_overSample, y_train_overSample
-    rf_pipe() # (x train,x test,  y_train,y_test) both X with dummies.
+    X_train, y_train = X_train_overSample, y_train_overSample
+    # scaler = MinMaxScaler()
+    # df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
+    df_columns = df.columns.tolist()
+    rf_pipe(orig_names) # (x train,x test,  y_train,y_test) both X with dummies.
     XGBoost_pipe()
     NN_pipe()
     svm_pipe(X_train, X_test)
     plot_stats(stats)
     plot_roc_curve(rocs)
-    # svm = SVC(C=0.013894954943731374)
+
+
+
 
     # ________________ KNN ______________ insert after pd.get_dummis
     # scaler = MinMaxScaler()
