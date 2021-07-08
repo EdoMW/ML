@@ -849,35 +849,39 @@ if __name__ == '__main__':
     """ -----------------------------  """
     df = handle_mis_val(df)
     # -------- descriptive statistics: --------
-    plot_descriptive_statistics()
-    df = df.drop('native.country', axis=1)  # missing values
-    df = df.drop('education', axis=1)  # same as education.num
-    # -------- prepare data to models: --------
-    y = df.pop('income')
-    orig_names = df.columns.tolist()  # column names before dummies
-    print("_-_____________________________________")
-    df = pd.get_dummies(df, columns=['workclass', 'marital.status', 'occupation', 'relationship', 'race',
-                                     'sex'])
-    df.columns = df.columns.tolist()
-    df[['age', 'fnlwgt', 'capital.gain', 'capital.loss', 'hours.per.week']] = df[['age', 'fnlwgt', 'capital.gain',
-                                                                                  'capital.loss',
-                                                                                  'hours.per.week']].astype(int)
-    X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42)
-
-    # ------- oversample -----------
-    oversample = RandomOverSampler()
-    X_train_overSample, y_train_overSample = oversample.fit_resample(X_train, y_train)
-    X_train, y_train = X_train_overSample, y_train_overSample
-    # --------
-    stats, rocs = [], []  # stats = { 'recall', 'precision','f1_score', 'accuracy', 'roc'},  rocs = [TP...]
-    #TODO -
-    # scaler = MinMaxScaler()
-    # df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
-    rf_pipe(orig_names)  # (x train,x test, y_train,y_test) both X with dummies.
-    XGBoost_pipe()
-    NN_pipe()
-    svm_pipe(X_train, X_test)
-    plot_stats(stats)
-    plot_roc_curve(rocs)  # ALL the rocs
-
-
+    df['capital_balance'] = df['capital.gain'] - df['capital.loss']
+    df = df.drop('capital.gain', axis=1)
+    df = df.drop('capital.loss', axis=1)
+    #
+    #
+    # df = df.drop('native.country', axis=1)  # missing values
+    # df = df.drop('education', axis=1)  # same as education.num
+    # # -------- prepare data to models: --------
+    # y = df.pop('income')
+    # orig_names = df.columns.tolist()  # column names before dummies
+    # print("_-_____________________________________")
+    # df = pd.get_dummies(df, columns=['workclass', 'marital.status', 'occupation', 'relationship', 'race',
+    #                                  'sex'])
+    # df.columns = df.columns.tolist()
+    # df[['age', 'fnlwgt', 'capital.gain', 'capital.loss', 'hours.per.week']] = df[['age', 'fnlwgt', 'capital.gain',
+    #                                                                               'capital.loss',
+    #                                                                               'hours.per.week']].astype(int)
+    # X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42)
+    #
+    # # ------- oversample -----------
+    # oversample = RandomOverSampler()
+    # X_train_overSample, y_train_overSample = oversample.fit_resample(X_train, y_train)
+    # X_train, y_train = X_train_overSample, y_train_overSample
+    # # --------
+    # stats, rocs = [], []  # stats = { 'recall', 'precision','f1_score', 'accuracy', 'roc'},  rocs = [TP...]
+    # #TODO -
+    # # scaler = MinMaxScaler()
+    # # df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
+    # rf_pipe(orig_names)  # (x train,x test, y_train,y_test) both X with dummies.
+    # XGBoost_pipe()
+    # NN_pipe()
+    # svm_pipe(X_train, X_test)
+    # plot_stats(stats)
+    # plot_roc_curve(rocs)  # ALL the rocs
+    #
+    #
