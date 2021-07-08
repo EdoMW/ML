@@ -443,13 +443,6 @@ def cramers_v(x, y):
     return np.sqrt(phi2corr / min((kcorr - 1), (rcorr - 1)))
 
 
-def encode_and_bind(original_dataframe, features_to_encode):
-    dummies = pd.get_dummies(original_dataframe[features_to_encode])
-    res = pd.concat([dummies, original_dataframe], axis=1)
-    res = res.drop(features_to_encode, axis=1)
-    return (res)
-
-
 def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix', cmap=plt.cm.Blues):
     plt.figure(figsize=(10, 10))
     plt.imshow(cm, interpolation='nearest', cmap=cmap)
@@ -474,19 +467,19 @@ def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix'
 
 
 def results(grid_search_model, X_train_encoded, X_test_encoded, y_test, estimator, y_train):
-    y_pred_acc = grid_search_model.predict(X_test_encoded)
-    cm = confusion_matrix(y_test, y_pred_acc)
+    test_predictions = grid_search_model.predict(X_test_encoded)
+    cm = confusion_matrix(y_test, test_predictions)
     plot_confusion_matrix(cm, classes=['0 - <=50K', '1 - >50K'],
                           title='income Confusion Matrix')
     if estimator == 'svm':
-        probs = grid_search_model.decision_function(X_test_encoded)
+        test_probs = grid_search_model.decision_function(X_test_encoded)
         train_probs = grid_search_model.decision_function(X_train_encoded)
     else:
-        probs = grid_search_model.predict_proba(X_test_encoded)[:, 1]
+        test_probs = grid_search_model.predict_proba(X_test_encoded)[:, 1]
         train_probs = grid_search_model.predict_proba(X_train_encoded)[:, 1]
 
     train_predictions = grid_search_model.predict(X_train_encoded)
-    evaluate_model(y_pred_acc, probs, train_predictions, train_probs, estimator,y_test, y_train, grid_search_model)
+    evaluate_model(test_predictions, test_probs, train_predictions, train_probs, estimator, y_test, y_train, grid_search_model)
 
 
 def plot_feature_importance(X_train_en, grid_search_object, orig_name):
@@ -529,9 +522,8 @@ def rf_pipe(orig_names_list):
     # train_mode = True
     random_grid = {}
     n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=3)]
-    max_depth = [10,30,50] # Maximum number of levels in tree
-    max_depth.append(None)
-    min_samples_split = [2,3,4,5,6,7,8,9]  # Minimum number of samples required to split a node
+    max_depth = [10, 30, 50, None]  # Maximum number of levels in tree
+    min_samples_split = [2, 3, 4, 5, 6, 7, 8, 9]  # Minimum number of samples required to split a node
     bootstrap = [True]  # Method of selecting samples for training each tree
     if checking:
         random_grid = {'n_estimators': [100],
@@ -547,8 +539,6 @@ def rf_pipe(orig_names_list):
 
     # Create random search model and fit the data
     rf_random = GridSearchCV(estimator=rf, param_grid=random_grid, n_jobs=-1, cv=5, verbose=2, scoring='f1')
-    # X_train_encoded = encode_and_bind(X_train, features_to_encode)
-    # X_test_encoded = encode_and_bind(X_test, features_to_encode)
     # rf.fit(X_train_encoded, y_train)
     if train_mode:
         rf_random.fit(X_train, y_train)
@@ -568,7 +558,7 @@ def XGBoost_pipe():
     checking = False
     train_mode = False
     random_grid = {}
-    max_depth = [1,2,3]  # Maximum number of levels in tree
+    max_depth = [1, 2, 3]  # Maximum number of levels in tree
     learning_rate = [0.0001, 0.001, 0.01, 0.1, 1]
     if checking:
         random_grid = {'n_estimators': [100],
@@ -585,8 +575,6 @@ def XGBoost_pipe():
         n_jobs=-1, cv=5,
         verbose=2,
         scoring='f1')
-    # X_train_encoded = encode_and_bind(X_train, features_to_encode)
-    # X_test_encoded = encode_and_bind(X_test, features_to_encode)
     if train_mode:
         XG_grid_search.fit(X_train, y_train)
         joblib.dump(XG_grid_search, 'XG_final2.pkl')  # save your model or results
@@ -609,14 +597,12 @@ def NN_pipe():
     else:
         param_grid = {'solver': ['adam'],
                       'max_iter': [200, 500, 1000],
-                      'alpha': [0.00001], 'hidden_layer_sizes': [5,25,45,65,85,105]}
+                      'alpha': [0.00001], 'hidden_layer_sizes': [5, 25, 45, 65, 85, 105]}
     # Create base model to tune
     NN = MLPClassifier()
 
     # Create random search model and fit the data
     NN_grid_search = GridSearchCV(estimator=NN, param_grid=param_grid, n_jobs=-1, cv=5, verbose=2, scoring='f1')
-    # X_train = encode_and_bind(X_train, features_to_encode)
-    # X_test = encode_and_bind(X_test, features_to_encode)
     if train_mode:
         NN_grid_search.fit(X_train, y_train)
         joblib.dump(NN_grid_search, 'NN_final2.pkl')  # save your model or results
@@ -650,8 +636,7 @@ def svm_pipe(X_train, X_test):
         n_jobs=2, cv=5,
         verbose=2,
         scoring='f1')
-    # X_train_encoded = encode_and_bind(X_train, features_to_encode)
-    # X_test_encoded = encode_and_bind(X_test, features_to_encode)
+
     from sklearn.preprocessing import MinMaxScaler
     scaling = MinMaxScaler(feature_range=(-1, 1)).fit(X_train)
     X_train = scaling.transform(X_train)
@@ -707,12 +692,6 @@ def plot_stats(stats_dict):
 
 
 def evaluate_model(y_pred, probs, train_predictions, train_probs, estimator, y_test, y_train, grid_obj):
-    baseline = {}
-
-    baseline['recall'] = recall_score(y_test, [1 for _ in range(len(y_test))])
-    baseline['precision'] = precision_score(y_test, [1 for _ in range(len(y_test))])
-    baseline['roc'] = 0.5
-    baseline['f1_score'] = 0.5
     results, train_results = {}, {}
     results['recall'] = recall_score(y_test, y_pred)
     results['precision'] = precision_score(y_test, y_pred)
@@ -745,7 +724,6 @@ def evaluate_model(y_pred, probs, train_predictions, train_probs, estimator, y_t
     plt.ylabel('True Positive Rate')
     plt.title('ROC Curves')
     plt.show()
-
 
 
 def plot_hyper_parameter(grid_search, hyper_param_to_plot):
@@ -794,7 +772,6 @@ def plot_hyper_parameter(grid_search, hyper_param_to_plot):
     plt.show()
 
 
-
 def get_scores_for_plot(
         hyper_params_to_keep_constant, cv_results, hyper_parameter_to_plot_name
 ):
@@ -823,7 +800,7 @@ def get_scores_for_plot(
     hyper_parameter_values = []
     err_score = []
     for candidate in range(n_candidates):
-        if all(   # filters only the relevant results
+        if all(  # filters only the relevant results
                 [
                     hyper_params_to_keep_constant[key] == cv_results[key][candidate]
                     for key in hyper_params_to_keep_constant.keys()
@@ -834,9 +811,6 @@ def get_scores_for_plot(
             )
             err_score.append(1 - cv_results["mean_test_score"][candidate])
     return hyper_parameter_values, err_score
-
-
-
 
 
 def plot_roc_curve(rocs):
@@ -855,59 +829,55 @@ def plot_roc_curve(rocs):
     plt.show()
 
 
+def knn(df):
+    # insert after pd.get_dummis
+    scaler = MinMaxScaler()
+    df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
+    print("_______________________________________")
+    imputer = KNNImputer(n_neighbors=5)
+    df = pd.DataFrame(imputer.fit_transform(df), columns=df.columns)
+    df_columns = df.columns.tolist()
+    df = pd.DataFrame(scaler.inverse_transform(df))
+    return df
+
+
 if __name__ == '__main__':
     np.random.seed(1)
     random.seed(1)
     df = read_data()
     df = fix_value_spaces_and_names(df)
     """ -----------------------------  """
-    # TODO - to aggregation of occupation - professionals
     df = handle_mis_val(df)
-    # sex_distribution()
-    df = df.drop('native.country', axis=1)
-    df = df.drop('education', axis=1)
-    # Oversampling:
+    # -------- descriptive statistics: --------
+    plot_descriptive_statistics()
+    df = df.drop('native.country', axis=1)  # missing values
+    df = df.drop('education', axis=1)  # same as education.num
+    # -------- prepare data to models: --------
     y = df.pop('income')
-
-    orig_names = df.columns.tolist()
-
+    orig_names = df.columns.tolist()  # column names before dummies
     print("_-_____________________________________")
     df = pd.get_dummies(df, columns=['workclass', 'marital.status', 'occupation', 'relationship', 'race',
                                      'sex'])
-    df_columns = df.columns.tolist()
-    df.columns = df_columns
-    df[['age', 'fnlwgt', 'capital.gain', 'capital.loss', 'hours.per.week']] = df[['age', 'fnlwgt', 'capital.gain', 'capital.loss', 'hours.per.week']].astype(int)
-
+    df.columns = df.columns.tolist()
+    df[['age', 'fnlwgt', 'capital.gain', 'capital.loss', 'hours.per.week']] = df[['age', 'fnlwgt', 'capital.gain',
+                                                                                  'capital.loss',
+                                                                                  'hours.per.week']].astype(int)
     X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42)
+
+    # ------- oversample -----------
     oversample = RandomOverSampler()
     X_train_overSample, y_train_overSample = oversample.fit_resample(X_train, y_train)
-    # Check value distribution
-    # ---------------------------------------------------------------------
-    features_to_encode = df.columns[df.dtypes == object].tolist()
-    # col_trans = make_column_transformer((OneHotEncoder(), features_to_encode), remainder="passthrough")
-    # print("col_trans", col_trans)
-
-    stats, rocs = [], []
     X_train, y_train = X_train_overSample, y_train_overSample
+    # --------
+    stats, rocs = [], []  # stats = { 'recall', 'precision','f1_score', 'accuracy', 'roc'},  rocs = [TP...]
+    #TODO -
     # scaler = MinMaxScaler()
     # df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
-    df_columns = df.columns.tolist()
-    rf_pipe(orig_names) # (x train,x test,  y_train,y_test) both X with dummies.
+    rf_pipe(orig_names)  # (x train,x test, y_train,y_test) both X with dummies.
     XGBoost_pipe()
     NN_pipe()
     svm_pipe(X_train, X_test)
     plot_stats(stats)
-    plot_roc_curve(rocs)
+    plot_roc_curve(rocs)  # ALL the rocs
 
 
-
-
-    # ________________ KNN ______________ insert after pd.get_dummis
-    # scaler = MinMaxScaler()
-    # df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
-    # print("_-_____________________________________")
-    # imputer = KNNImputer(n_neighbors=5)
-    # df = pd.DataFrame(imputer.fit_transform(df), columns=df.columns)
-    # df_columns = df.columns.tolist()
-    # df = pd.DataFrame(scaler.inverse_transform(df))
-    # ________________ KNN ______________
