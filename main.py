@@ -25,7 +25,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score, \
     roc_auc_score, roc_curve, f1_score
 
-train_mode = False
+train_mode = True
 fprs, tprs = [], []
 
 pd.set_option('display.max_columns', None)
@@ -318,19 +318,19 @@ def native_country_distribution():
 
 def plot_descriptive_statistics():
     age_distribution()
-    workclass_distribution()
+    # workclass_distribution()
     fnlwgt_distribution()
-    education_distribution()
-    education_num_distribution()
-    occupation_distribution()
-    relationship_distribution()
-    marital_status_distribution()
+    # education_distribution()
+    # education_num_distribution()
+    # occupation_distribution()
+    # relationship_distribution()
+    # marital_status_distribution()
     race_distribution()
     sex_distribution()
-    capital_gain_distribution()
-    capital_loss_distribution()
+    # capital_gain_distribution()
+    # capital_loss_distribution()
     hours_per_week_distribution()
-    native_country_distribution()
+    # native_country_distribution()
     income_general_distribution()
 
 
@@ -479,7 +479,8 @@ def results(grid_search_model, X_train_encoded, X_test_encoded, y_test, estimato
         train_probs = grid_search_model.predict_proba(X_train_encoded)[:, 1]
 
     train_predictions = grid_search_model.predict(X_train_encoded)
-    evaluate_model(test_predictions, test_probs, train_predictions, train_probs, estimator, y_test, y_train, grid_search_model)
+    evaluate_model(test_predictions, test_probs, train_predictions, train_probs, estimator, y_test, y_train,
+                   grid_search_model)
 
 
 def plot_feature_importance(X_train_en, grid_search_object, orig_name):
@@ -518,7 +519,7 @@ def plot_feature_importance(X_train_en, grid_search_object, orig_name):
 
 def rf_pipe(orig_names_list):
     print_time_line_sep('Random Forest')
-    checking = False
+    checking = True
     # train_mode = True
     random_grid = {}
     n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=3)]
@@ -548,9 +549,9 @@ def rf_pipe(orig_names_list):
     results(rf_random, X_train, X_test, y_test, 'RF', y_train)
     # print("feature importance")
     plot_feature_importance(X_train_en=X_train, grid_search_object=rf_random, orig_name=orig_names_list)
-    plot_hyper_parameter(grid_search=rf_random, hyper_param_to_plot='n_estimators')
-    plot_hyper_parameter(grid_search=rf_random, hyper_param_to_plot='max_depth')
-    plot_hyper_parameter(grid_search=rf_random, hyper_param_to_plot='min_samples_split')
+    # plot_hyper_parameter(grid_search=rf_random, hyper_param_to_plot='n_estimators')
+    # plot_hyper_parameter(grid_search=rf_random, hyper_param_to_plot='max_depth')
+    # plot_hyper_parameter(grid_search=rf_random, hyper_param_to_plot='min_samples_split')
 
 
 def XGBoost_pipe():
@@ -841,6 +842,89 @@ def knn(df):
     return df
 
 
+def age_bins(df):
+    df['age_bins'] = None
+    df.loc[df.age <= 28, "age_bins"] = 1
+    df.loc[(df.age > 28) & (df.age <= 38), "age_bins"] = 2
+    df.loc[(df.age > 38) & (df.age <= 46), "age_bins"] = 3
+    df.loc[(df.age > 46) & (df.age <= 56), "age_bins"] = 4
+    df.loc[df.age > 56, "age_bins"] = 5
+    print(df[['age', 'age_bins']])
+    return df
+
+
+def relationship_bins(df):
+    df['relationship_bins'] = None
+    df.loc[df.relationship == "Husband", "relationship_bins"] = "married"
+    df.loc[df.relationship == "Wife", "relationship_bins"] = "married"
+    df.loc[(df.relationship_bins != "married"), "relationship_bins"] = "else"
+    return df
+
+
+
+def hours_per_week_bins(df):
+    df['hours.per.week_bins'] = None
+    df.loc[df['hours.per.week'] <= 35, "hours.per.week_bins"] = 1
+    df.loc[(df['hours.per.week'] > 35) & (df['hours.per.week'] <= 50), "hours.per.week_bins"] = 2
+    df.loc[(df['hours.per.week'] > 50) & (df['hours.per.week'] <= 65), "hours.per.week_bins"] = 3
+    df.loc[df['hours.per.week'] > 65, "hours.per.week_bins"] = 4
+    print(df[['hours.per.week', 'hours.per.week_bins']])
+    return df
+
+
+def education_bins(df):
+    df['education.num_bins'] = df['education.num']
+    df.loc[df['education.num'] <= 8, "education.num_bins"] = 1  # bin for all school categories
+    df.loc[df['education.num'] == 9, "education.num_bins"] = 2
+    df.loc[df['education.num'] == 10, "education.num_bins"] = 3
+    df.loc[df['education.num'] == 11, "education.num_bins"] = 4
+    df.loc[df['education.num'] == 12, "education.num_bins"] = 5
+    df.loc[df['education.num'] == 13, "education.num_bins"] = 6
+    df.loc[df['education.num'] == 14, "education.num_bins"] = 7
+    df.loc[df['education.num'] == 15, "education.num_bins"] = 8
+    df.loc[df['education.num'] == 16, "education.num_bins"] = 9
+    return df
+
+def remove_variables(df):
+    df = df.drop('hours.per.week', axis=1)
+    df = df.drop('education.num', axis=1)
+    df = df.drop('age', axis=1)
+    df = df.drop('fnlwgt', axis=1)
+    df = df.drop('relationship', axis=1)
+    return df
+
+
+def bins(df):
+    # ----- bin for age
+    df = age_bins(df)
+    # ----- bin for fnlwgt
+    # print(pd.qcut(df['fnlwgt'], q=5))  # for the bins range
+    df['fnlwgt_bins'] = pd.qcut(df['fnlwgt'], q=5, labels=[1, 2, 3, 4, 5])  # equal distribution bins
+    # ----- bin for education.num
+    df = education_bins(df)
+    # ----- bin for hours.per.week
+    df = hours_per_week_bins(df)
+    df = relationship_bins(df)
+    df = remove_variables(df)
+
+    df = df.rename({'age_bins': 'age', 'fnlwgt_bins': 'fnlwgt',
+                    'education.num_bins': 'education.num', 'hours.per.week_bins': 'hours.per.week',
+                    'relationship_bins': 'relationship'}, axis=1)
+    return df
+
+
+def remove_add_variables(df):
+    df = df.drop('native.country', axis=1)  # missing values
+    df = df.drop('education', axis=1)  # same as education.num
+    df['capital_balance'] = df['capital.gain'] - df['capital.loss']
+    df = df.drop('capital.gain', axis=1)
+    df = df.drop('capital.loss', axis=1)
+    # to avoid Multicollinearity problem with relationship. relationship had stronger connection to income
+    df = df.drop('marital.status', axis=1)
+
+    return df
+
+
 if __name__ == '__main__':
     np.random.seed(1)
     random.seed(1)
@@ -848,40 +932,39 @@ if __name__ == '__main__':
     df = fix_value_spaces_and_names(df)
     """ -----------------------------  """
     df = handle_mis_val(df)
-    # -------- descriptive statistics: --------
-    df['capital_balance'] = df['capital.gain'] - df['capital.loss']
-    df = df.drop('capital.gain', axis=1)
-    df = df.drop('capital.loss', axis=1)
-    print("a")
 
-    # df = df.drop('native.country', axis=1)  # missing values
-    # df = df.drop('education', axis=1)  # same as education.num
-    # # -------- prepare data to models: --------
-    # y = df.pop('income')
-    # orig_names = df.columns.tolist()  # column names before dummies
-    # print("_-_____________________________________")
-    # df = pd.get_dummies(df, columns=['workclass', 'marital.status', 'occupation', 'relationship', 'race',
-    #                                  'sex'])
-    # df.columns = df.columns.tolist()
-    # df[['age', 'fnlwgt', 'capital.gain', 'capital.loss', 'hours.per.week']] = df[['age', 'fnlwgt', 'capital.gain',
-    #                                                                               'capital.loss',
-    #                                                                               'hours.per.week']].astype(int)
-    # X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42)
-    #
-    # # ------- oversample -----------
-    # oversample = RandomOverSampler()
-    # X_train_overSample, y_train_overSample = oversample.fit_resample(X_train, y_train)
-    # X_train, y_train = X_train_overSample, y_train_overSample
-    # # --------
-    # stats, rocs = [], []  # stats = { 'recall', 'precision','f1_score', 'accuracy', 'roc'},  rocs = [TP...]
-    # #TODO -
-    # # scaler = MinMaxScaler()
-    # # df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
-    # rf_pipe(orig_names)  # (x train,x test, y_train,y_test) both X with dummies.
+    print(cramers_v(df['income'], df['relationship']))
+    print(cramers_v(df['marital.status'], df['income']))
+    print(cramers_v(df['marital.status'], df['relationship']))
+    # -------- descriptive statistics: --------
+    # plot_descriptive_statistics()
+    df = remove_add_variables(df)
+    df = bins(df)
+    # x = df.groupby(['hours.per.week', 'income']).size().reset_index(name='count')
+    # print(x)
+    # -------- prepare data to models: --------
+    plot_descriptive_statistics()
+    y = df.pop('income')
+    orig_names = df.columns.tolist()  # column names before dummies
+    print("_______________________________________")
+    df = pd.get_dummies(df, columns=['workclass', 'occupation', 'relationship', 'race',
+                                     'sex'])
+    df.columns = df.columns.tolist()
+    # df[['age', 'fnlwgt', 'hours.per.week']] = df[['age', 'fnlwgt', 'hours.per.week']].astype(int)
+    X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42)
+
+    # ------- oversample -----------
+    oversample = RandomOverSampler()
+    X_train_overSample, y_train_overSample = oversample.fit_resample(X_train, y_train)
+    X_train, y_train = X_train_overSample, y_train_overSample
+    # --------
+    stats, rocs = [], []  # stats = { 'recall', 'precision','f1_score', 'accuracy', 'roc'},  rocs = [TP...]
+    # TODO
+    # scaler = MinMaxScaler()
+    # df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
+    rf_pipe(orig_names)  # (x train,x test, y_train,y_test) both X with dummies.
     # XGBoost_pipe()
     # NN_pipe()
     # svm_pipe(X_train, X_test)
     # plot_stats(stats)
     # plot_roc_curve(rocs)  # ALL the rocs
-    #
-    #
