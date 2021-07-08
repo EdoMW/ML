@@ -4,14 +4,12 @@ import numpy as np
 from time import localtime, strftime, time
 import joblib
 import itertools
-from imblearn.over_sampling import SMOTE
 
 import matplotlib.pyplot as plt
 from matplotlib.text import Text
 from matplotlib.legend_handler import HandlerBase
 from matplotlib.ticker import FuncFormatter, EngFormatter
-from imblearn.over_sampling import SMOTE
-from imblearn.over_sampling import RandomOverSampler
+from imblearn.over_sampling import SMOTE, RandomOverSampler
 import seaborn as sns
 
 from scipy.stats import chi2_contingency
@@ -488,7 +486,7 @@ def results(grid_search_model, X_train_encoded, X_test_encoded, y_test, estimato
         train_probs = grid_search_model.predict_proba(X_train_encoded)[:, 1]
 
     train_predictions = grid_search_model.predict(X_train_encoded)
-    evaluate_model(y_pred_acc, probs, train_predictions, train_probs, estimator,y_test, y_train)
+    evaluate_model(y_pred_acc, probs, train_predictions, train_probs, estimator,y_test, y_train, grid_search_model)
 
 
 def plot_feature_importance(X_train_en, grid_search_object, orig_name):
@@ -530,10 +528,10 @@ def rf_pipe(orig_names_list):
     checking = False
     # train_mode = True
     random_grid = {}
-    n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=9)]
-    max_depth = [10,30,50]  # Maximum number of levels in tree
+    n_estimators = [int(x) for x in np.linspace(start=50, stop=450, num=3)]
+    max_depth = [10,30,50] # Maximum number of levels in tree
     max_depth.append(None)
-    min_samples_split = [2, 5]  # Minimum number of samples required to split a node
+    min_samples_split = [2,3,4,5,6,7,8,9]  # Minimum number of samples required to split a node
     bootstrap = [True]  # Method of selecting samples for training each tree
     if checking:
         random_grid = {'n_estimators': [100],
@@ -541,7 +539,7 @@ def rf_pipe(orig_names_list):
     else:
         random_grid = {'n_estimators': n_estimators,
                        'max_depth': max_depth,
-                       # 'min_samples_split': min_samples_split,
+                       'min_samples_split': min_samples_split,
                        'bootstrap': bootstrap,
                        }
     # Create base model to tune
@@ -560,19 +558,15 @@ def rf_pipe(orig_names_list):
     results(rf_random, X_train, X_test, y_test, 'RF', y_train)
     # print("feature importance")
     plot_feature_importance(X_train_en=X_train, grid_search_object=rf_random, orig_name=orig_names_list)
-
-    # for ind, i in enumerate(Cs):
-    #     plt.plot(n_estimators, max_depth[ind], label='C: ' + str(i))
-    # plt.legend()
-    # plt.xlabel('Gamma')
-    # plt.ylabel('Mean score')
-    # plt.show()
-
+    plot_hyper_parameter(grid_search=rf_random, hyper_param_to_plot='n_estimators')
+    plot_hyper_parameter(grid_search=rf_random, hyper_param_to_plot='max_depth')
+    plot_hyper_parameter(grid_search=rf_random, hyper_param_to_plot='min_samples_split')
 
 
 def XGBoost_pipe():
     print_time_line_sep('XGBoost')
     checking = False
+    train_mode = False
     random_grid = {}
     max_depth = [1,2,3]  # Maximum number of levels in tree
     learning_rate = [0.0001, 0.001, 0.01, 0.1, 1]
@@ -600,11 +594,14 @@ def XGBoost_pipe():
         XG_grid_search = joblib.load("XG_final2.pkl")  # load your model for further usage
 
     results(XG_grid_search, X_train, X_test, y_test, 'XG', y_train)
+    plot_hyper_parameter(grid_search=XG_grid_search, hyper_param_to_plot='max_depth')
+    plot_hyper_parameter(grid_search=XG_grid_search, hyper_param_to_plot='learning_rate')
 
 
 def NN_pipe():
     print_time_line_sep('NN')
     checking = False
+    train_mode = False
     random_grid = {}
     if checking:
         param_grid = {'max_iter': [200],
@@ -626,11 +623,14 @@ def NN_pipe():
     else:
         NN_grid_search = joblib.load("NN_final2.pkl")  # load your model for further usage
     results(NN_grid_search, X_train, X_test, y_test, 'NN', y_train)
+    plot_hyper_parameter(grid_search=NN_grid_search, hyper_param_to_plot='max_iter')
+    plot_hyper_parameter(grid_search=NN_grid_search, hyper_param_to_plot='hidden_layer_sizes')
 
 
 def svm_pipe(X_train, X_test):
     print_time_line_sep('SVM')
     checking = False
+    train_mode = False
     random_grid = {}
     alpha = [0.0001, 0.001, 0.01, 0.1]
     max_iter = [1_000, 4_000, 7_000, 10_000]
@@ -662,6 +662,8 @@ def svm_pipe(X_train, X_test):
     else:
         SVM_grid_search = joblib.load("SVM_final2.pkl")  # load your model for further usage
     results(SVM_grid_search, X_train, X_test, y_test, "svm", y_train)
+    plot_hyper_parameter(grid_search=SVM_grid_search, hyper_param_to_plot='alpha')
+    plot_hyper_parameter(grid_search=SVM_grid_search, hyper_param_to_plot='max_iter')
 
 
 def stats_to_lists(stats_to_list):
@@ -704,7 +706,7 @@ def plot_stats(stats_dict):
     plt.show()
 
 
-def evaluate_model(y_pred, probs, train_predictions, train_probs, estimator, y_test, y_train):
+def evaluate_model(y_pred, probs, train_predictions, train_probs, estimator, y_test, y_train, grid_obj):
     baseline = {}
 
     baseline['recall'] = recall_score(y_test, [1 for _ in range(len(y_test))])
@@ -715,15 +717,18 @@ def evaluate_model(y_pred, probs, train_predictions, train_probs, estimator, y_t
     results['recall'] = recall_score(y_test, y_pred)
     results['precision'] = precision_score(y_test, y_pred)
     results['f1_score'] = f1_score(y_test, y_pred)
-    # results['roc'] = roc_auc_score(y_test, probs)
+    results['accuracy'] = accuracy_score(y_test, y_pred)
+    results['roc'] = roc_auc_score(y_test, probs)
     train_results['recall'] = recall_score(y_train, train_predictions)
     train_results['precision'] = precision_score(y_train, train_predictions)
     train_results['f1_score'] = f1_score(y_train, train_predictions)
-    # train_results['roc'] = roc_auc_score(y_train, train_probs)
+    train_results['accuracy'] = accuracy_score(y_train, train_predictions)
+    train_results['roc'] = roc_auc_score(y_train, train_probs)
     stats.append(results)
-    for metric in ['recall', 'precision', 'f1_score']:
+    print(grid_obj.best_params_)
+    for metric in ['recall', 'precision', 'f1_score', 'accuracy', 'roc']:
         print(f'{metric.capitalize()} '
-              f'Baseline: {round(baseline[metric], 2)} '
+              # f'Baseline: {round(baseline[metric], 2)} '
               f'Test: {round(results[metric], 2)} '
               f'Train: {round(train_results[metric], 2)} ')
     # Calculate false positive rates and true positive rates
@@ -740,6 +745,98 @@ def evaluate_model(y_pred, probs, train_predictions, train_probs, estimator, y_t
     plt.ylabel('True Positive Rate')
     plt.title('ROC Curves')
     plt.show()
+
+
+
+def plot_hyper_parameter(grid_search, hyper_param_to_plot):
+    """plot the error as a function of a specific hyper parameter while setting the others constant
+    the other hyper parameters are taken from the best configuration found in the grid search.
+
+    Parameters
+    ----------
+    grid_search: GridSearchCV.
+        fitted GridSearchCV object
+    hyper_param_to_plot: str.
+        name of the hyper parameter to plot. one of grid_search.best_params_ keys.
+
+    """
+    best_params_to_keep_constant = {
+        f"param_{param}": value
+        for param, value in grid_search.best_params_.items()
+        if param != hyper_param_to_plot
+    }
+
+    hyper_parameter_values, err_score = get_scores_for_plot(
+        best_params_to_keep_constant,
+        grid_search.cv_results_,
+        f"param_{hyper_param_to_plot}",
+    )
+    plt.plot(hyper_parameter_values, err_score)
+    plt.xlabel(hyper_param_to_plot)
+    plt.ylabel("Validation Error")
+    ymin = min(err_score)
+    xpos = err_score.index(ymin)
+    xmin = hyper_parameter_values[xpos]
+    try:
+        xmin = round(xmin, 3)
+    except TypeError:
+        pass  # some hyper parameters are tuples
+    plt.title(
+        f"{hyper_param_to_plot} validation error \n "
+        f"Local minimum at {xmin} with \n "
+        f"validation error {round(ymin, 3)}",
+        fontsize=14, fontweight="bold"
+    )
+    plt.subplots_adjust(bottom=.24)
+    plt.subplots_adjust(left=.2)
+    plt.subplots_adjust(right=.8)
+    plt.subplots_adjust(top=.84)
+    plt.show()
+
+
+
+def get_scores_for_plot(
+        hyper_params_to_keep_constant, cv_results, hyper_parameter_to_plot_name
+):
+    """return the scores of a hyper parameter in a grid-search by setting other parameters constant
+    Parameters
+    ----------
+    hyper_params_to_keep_constant: dict.
+        dict containing the other hyper parameter names and values to look for in the grid search results
+    cv_results: dict.
+        dict holding the cv results from the grid search
+    hyper_parameter_to_plot_name: str.
+        name of the hyper parameter we are tuning
+
+    Returns
+    -------
+    hyper_parameter_values: array.
+        array of the hyper parameter values tested in the grid search
+    err_score: array.
+        array holding the corresponding error scores for each hyper parameter value
+
+    See Also
+    -------
+    plot_hyper_parameter
+    """
+    n_candidates = cv_results["mean_fit_time"].size
+    hyper_parameter_values = []
+    err_score = []
+    for candidate in range(n_candidates):
+        if all(   # filters only the relevant results
+                [
+                    hyper_params_to_keep_constant[key] == cv_results[key][candidate]
+                    for key in hyper_params_to_keep_constant.keys()
+                ]
+        ):
+            hyper_parameter_values.append(
+                cv_results[hyper_parameter_to_plot_name][candidate]
+            )
+            err_score.append(1 - cv_results["mean_test_score"][candidate])
+    return hyper_parameter_values, err_score
+
+
+
 
 
 def plot_roc_curve(rocs):
@@ -764,7 +861,6 @@ if __name__ == '__main__':
     df = read_data()
     df = fix_value_spaces_and_names(df)
     """ -----------------------------  """
-    income_general_distribution()
     # TODO - to aggregation of occupation - professionals
     df = handle_mis_val(df)
     # sex_distribution()
