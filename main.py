@@ -852,8 +852,8 @@ if __name__ == '__main__':
     df['capital_balance'] = df['capital.gain'] - df['capital.loss']
     df = df.drop('capital.gain', axis=1)
     df = df.drop('capital.loss', axis=1)
-    #
-    #
+    print("a")
+
     # df = df.drop('native.country', axis=1)  # missing values
     # df = df.drop('education', axis=1)  # same as education.num
     # # -------- prepare data to models: --------
